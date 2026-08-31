@@ -115,6 +115,16 @@
   .unit-opt.active { background: var(--accent); color: #fff; border-color: transparent; }
   .add-btn2 { background: var(--text); color: var(--bg); border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; width: 100%; }
 
+  .backup-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 20px; }
+  .backup-box .lbl { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; font-weight: 700; }
+  .backup-row { display: flex; gap: 8px; }
+  .backup-btn { flex: 1; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 11px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .backup-btn:active { opacity: 0.8; }
+  .backup-note { font-size: 11px; color: var(--text-faint); margin-top: 8px; }
+
+  .compile-all-btn { background: var(--text); color: var(--bg); border: none; border-radius: 12px; padding: 14px; font-size: 14px; font-weight: 800; cursor: pointer; width: 100%; margin-top: 22px; }
+  .compile-all-btn:active { opacity: 0.85; }
+
   /* Modal */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(42,38,32,0.5); z-index: 10; display: none; align-items: flex-end; justify-content: center; }
   .modal-backdrop.show { display: flex; }
@@ -140,6 +150,8 @@
     </div>
     <div class="home-sub">오늘 <b id="done-count">0</b>/<span id="total-count">0</span>개 기록함</div>
     <div id="home-lists"></div>
+    <button class="compile-all-btn" id="compile-all-btn">🗂 전체 루틴 정리해서 메모 만들기</button>
+    <div id="global-memo-list"></div>
     <div class="reset-link" id="reset-btn">모든 기록 초기화</div>
   </div>
 
@@ -155,6 +167,15 @@
     <div class="detail-header">
       <div class="back-btn" id="manage-back-btn">‹</div>
       <div class="detail-title">루틴 관리</div>
+    </div>
+    <div class="backup-box">
+      <div class="lbl">데이터 백업</div>
+      <div class="backup-row">
+        <button class="backup-btn" id="export-btn">백업 파일 다운로드</button>
+        <button class="backup-btn" id="import-btn">파일로 복원하기</button>
+      </div>
+      <div class="backup-note">폰을 바꾸거나 브라우저 데이터가 지워지면 기록이 사라질 수 있어요. 가끔 다운로드해두세요.</div>
+      <input type="file" id="import-file" accept="application/json" style="display:none;">
     </div>
     <div id="manage-list"></div>
     <div class="add-form">
@@ -217,12 +238,32 @@ function loadState() {
     if (!state.data[r.id]) state.data[r.id] = { sessions: [], lastCompiled: null, memos: [] };
     if (!state.data[r.id].memos) state.data[r.id].memos = [];
   });
+  if (!state.globalMemos) state.globalMemos = [];
   saveState();
 }
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
 function todayEntry(r) {
   return state.data[r.id].sessions.find(s => s.date === todayStr());
+}
+
+function computeStreak(r) {
+  let streak = 0, d = new Date();
+  while (state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10))) {
+    streak++; d.setDate(d.getDate()-1);
+  }
+  return streak;
+}
+function computeLast7(r) {
+  let count = 0;
+  for (let i=0;i<7;i++) {
+    const d = new Date(); d.setDate(d.getDate()-i);
+    if (state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10))) count++;
+  }
+  return count;
+}
+function computeAllTimeTotal(r) {
+  return state.data[r.id].sessions.reduce((a,s) => a + s.amount, 0);
 }
 
 function renderHome() {
@@ -255,6 +296,23 @@ function renderHome() {
   }
   document.getElementById('home-lists').innerHTML = html;
   document.querySelectorAll('#home-lists .row').forEach(el => el.addEventListener('click', () => openDetail(el.getAttribute('data-id'))));
+
+  const gm = state.globalMemos || [];
+  const gmList = document.getElementById('global-memo-list');
+  if (gm.length) {
+    gmList.innerHTML = `<div class="section-lbl">지난 전체 메모</div>` + gm.slice().reverse().map((m, idx) => `
+      <div class="memo-item" data-global-memo-idx="${gm.length - 1 - idx}">
+        <div class="mdate">${m.date}</div>
+        <div class="mpreview">${escapeHtml(m.text.slice(0,60))}...</div>
+      </div>`).join('');
+    gmList.querySelectorAll('[data-global-memo-idx]').forEach(el => el.addEventListener('click', () => {
+      const idx = parseInt(el.getAttribute('data-global-memo-idx'));
+      const m = gm[idx];
+      openModal('전체 루틴 메모', m.date, m.text);
+    }));
+  } else {
+    gmList.innerHTML = '';
+  }
 }
 
 let currentId = null;
@@ -328,6 +386,16 @@ function attachDetailEvents(r) {
     checkActive = !checkActive;
     checkBtn.classList.toggle('active', checkActive);
     checkBtn.textContent = checkActive ? '✓ 완료함' : '오늘 완료';
+    if (checkActive) { const ni = document.getElementById('note-input'); if (ni) ni.focus(); }
+  });
+
+  const amountInput = document.getElementById('amount-input');
+  const noteInput = document.getElementById('note-input');
+  if (amountInput) amountInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); if (noteInput) noteInput.focus(); }
+  });
+  if (noteInput) noteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); const sb = document.getElementById('save-btn'); if (sb) sb.click(); }
   });
 
   const saveBtn = document.getElementById('save-btn');
@@ -376,12 +444,45 @@ function compileMemo(r) {
   const lines = sessions.map(s => `- ${s.date} (${fmtDate(s.date)}): ${r.unit === '시간' ? s.amount + '시간' : '완료'}${s.note ? ' — ' + s.note : ''}`);
   const totalAmount = sessions.reduce((a,s) => a + s.amount, 0);
   const from = sessions[0].date, to = sessions[sessions.length-1].date;
-  const text = `[${r.name} 기록 정리 — ${from} ~ ${to}]\n\n${lines.join('\n')}\n\n총 ${sessions.length}회, 누적 ${totalAmount}${r.unit}\n\n---\n위 기록을 보고 패턴을 진단하고, 앞으로 어떻게 하면 좋을지 방향을 제안해줘.`;
+  const streak = computeStreak(r);
+  const last7 = computeLast7(r);
+  const allTime = computeAllTimeTotal(r);
+  const text = `[${r.name} 기록 정리 — ${from} ~ ${to}]\n\n` +
+    `📊 최근 7일 중 ${last7}일 실천 · 현재 연속 ${streak}일 · 전체 누적 ${allTime}${r.unit}\n\n` +
+    `${lines.join('\n')}\n\n이번 구간 ${sessions.length}회, ${totalAmount}${r.unit}\n\n---\n위 기록을 보고 패턴을 진단하고, 앞으로 어떻게 하면 좋을지 방향을 제안해줘.`;
   state.data[r.id].memos.push({ from, to, text });
   state.data[r.id].lastCompiled = to;
   saveState();
   openModal(`${r.name} 메모 생성 완료`, `${from} ~ ${to} · ${sessions.length}건 · 클로드에 붙여넣어 보세요`, text);
   renderDetail();
+}
+
+function compileAllMemo() {
+  const sections = [];
+  state.routines.forEach(r => {
+    const since = state.data[r.id].lastCompiled;
+    const sessions = state.data[r.id].sessions.filter(s => !since || s.date > since).sort((a,b) => a.date.localeCompare(b.date));
+    if (sessions.length === 0) return;
+    const lines = sessions.map(s => `  - ${s.date} (${fmtDate(s.date)}): ${r.unit === '시간' ? s.amount + '시간' : '완료'}${s.note ? ' — ' + s.note : ''}`);
+    const totalAmount = sessions.reduce((a,s) => a + s.amount, 0);
+    const streak = computeStreak(r), last7 = computeLast7(r), allTime = computeAllTimeTotal(r);
+    sections.push(`### ${r.name}\n최근 7일 중 ${last7}일 실천 · 연속 ${streak}일 · 전체 누적 ${allTime}${r.unit}\n${lines.join('\n')}\n(이번 구간 ${sessions.length}회, ${totalAmount}${r.unit})`);
+    state.data[r.id].lastCompiled = sessions[sessions.length-1].date;
+  });
+
+  if (sections.length === 0) {
+    openModal('전체 루틴 정리', '새로 추가된 기록이 없어요', '모든 루틴에서 마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.');
+    return;
+  }
+
+  const today = todayStr();
+  const text = `[전체 루틴 기록 정리 — ${today} 기준]\n\n${sections.join('\n\n')}\n\n---\n위 전체 기록을 보고 루틴 간 패턴과 균형을 진단하고, 앞으로 어떻게 하면 좋을지 방향을 제안해줘.`;
+
+  if (!state.globalMemos) state.globalMemos = [];
+  state.globalMemos.push({ date: today, text });
+  saveState();
+  openModal('전체 루틴 메모 생성 완료', `${today} · 클로드에 붙여넣어 보세요`, text);
+  renderHome();
 }
 
 /* ===== Manage screen ===== */
@@ -465,6 +566,42 @@ function escapeAttr(str) { return str.replace(/"/g, '&quot;'); }
 document.getElementById('back-btn').addEventListener('click', closeDetail);
 document.getElementById('manage-link').addEventListener('click', openManage);
 document.getElementById('manage-back-btn').addEventListener('click', closeManage);
+document.getElementById('compile-all-btn').addEventListener('click', compileAllMemo);
+
+document.getElementById('export-btn').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `daily-lap-backup-${todayStr()}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+document.getElementById('import-btn').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      if (!parsed.routines || !parsed.data) throw new Error('형식이 올바르지 않아요');
+      if (confirm('현재 기록을 덮어쓰고 백업 파일로 복원할까요? 되돌릴 수 없어요.')) {
+        state = parsed;
+        if (!state.globalMemos) state.globalMemos = [];
+        saveState();
+        renderManage();
+        alert('복원 완료했어요!');
+      }
+    } catch (err) {
+      alert('백업 파일을 읽을 수 없어요: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
 document.getElementById('reset-btn').addEventListener('click', () => {
   if (confirm('모든 기록을 초기화할까요? 되돌릴 수 없어요.')) {
     localStorage.removeItem(STORAGE_KEY);
