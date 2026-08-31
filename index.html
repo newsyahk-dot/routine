@@ -3,19 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Daily Lap</title>
+<title>시간 원장</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0a0b10">
+<meta name="theme-color" content="#faf7f0">
 <style>
   :root {
-    --bg: #0a0b10; --surface: #15161d; --surface-2: #1c1e28;
-    --text: #f5f6f8; --text-dim: #8b8fa3; --text-faint: #4d5062;
-    --accent: #4c6fff; --accent-dim: rgba(76,111,255,0.15);
-    --up: #17c787; --down: #ff5c5c; --divider: rgba(255,255,255,0.07);
-    --font: -apple-system, 'Malgun Gothic', 'Apple SD Gothic Neo', 'Helvetica Neue', sans-serif;
+    --bg: #faf7f0; --surface: #ffffff; --surface-2: #f4efe4; --border: #e8e0d0;
+    --text: #2a2620; --text-dim: #756c5c; --text-faint: #b0a690;
+    --accent: #b5652f; --accent-dim: rgba(181,101,47,0.10);
+    --up: #4c7a5c; --up-dim: rgba(76,122,92,0.09); --down: #b5453a;
+    --font-serif: 'Noto Serif KR', Georgia, 'Batang', serif;
+    --font: -apple-system, 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
     --font-mono: 'SF Mono', 'IBM Plex Mono', Consolas, monospace;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -24,96 +25,121 @@
   .app { max-width: 480px; margin: 0 auto; position: relative; min-height: 100vh; overflow: hidden; }
 
   .screen { position: absolute; top: 0; left: 0; width: 100%; min-height: 100vh; background: var(--bg);
-    transition: transform 0.3s cubic-bezier(0.22,1,0.36,1); padding: max(24px, env(safe-area-inset-top)) 20px 80px; }
+    transition: transform 0.3s cubic-bezier(0.22,1,0.36,1); padding: max(26px, env(safe-area-inset-top)) 20px 60px; }
   #home { transform: translateX(0); z-index: 1; }
-  #detail { transform: translateX(100%); z-index: 2; }
-  .app.open #home { transform: translateX(-14%); filter: brightness(0.6); }
-  .app.open #detail { transform: translateX(0); }
+  #detail, #manage { transform: translateX(100%); z-index: 2; }
+  .app.open-detail #home { transform: translateX(-12%); filter: brightness(0.94); }
+  .app.open-detail #detail { transform: translateX(0); }
+  .app.open-manage #home { transform: translateX(-12%); filter: brightness(0.94); }
+  .app.open-manage #manage { transform: translateX(0); }
 
-  .home-date { font-size: 12px; color: var(--text-faint); margin-bottom: 4px; }
-  .home-title { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
-  .home-sub { font-size: 13px; color: var(--text-dim); margin-bottom: 24px; }
-  .home-sub b { color: var(--text); }
+  .home-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .home-date { font-size: 13px; color: var(--text-faint); font-weight: 600; margin-bottom: 6px; }
+  .home-title { font-family: var(--font-serif); font-size: 27px; font-weight: 600; margin-bottom: 8px; }
+  .manage-link { font-size: 13px; color: var(--accent); font-weight: 700; cursor: pointer; padding: 4px 0; }
+  .home-sub { font-size: 15px; color: var(--text-dim); margin-bottom: 24px; }
+  .home-sub b { color: var(--accent); font-weight: 800; }
 
-  .row { display: flex; align-items: center; gap: 12px; padding: 14px 4px; border-bottom: 1px solid var(--divider); cursor: pointer; }
-  .row:active { background: var(--surface); }
-  .row-badge { width: 22px; height: 22px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; font-weight: 800; }
-  .row-badge.done { background: rgba(23,199,135,0.16); color: var(--up); }
-  .row-badge.pending { background: var(--surface-2); color: var(--text-faint); }
-  .row-name { font-size: 15px; font-weight: 600; flex-grow: 1; }
-  .row-status { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: right; }
-  .row-chev { color: var(--text-faint); font-size: 14px; }
+  .section-lbl { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin: 22px 2px 10px; }
+  .section-lbl:first-of-type { margin-top: 0; }
 
+  .row { display: flex; align-items: center; gap: 13px; padding: 15px 16px; margin-bottom: 8px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); cursor: pointer; }
+  .row.done { border-color: rgba(76,122,92,0.28); background: var(--up-dim); }
+  .row:active { opacity: 0.85; }
+  .badge { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; flex-shrink: 0; }
+  .badge.done { background: var(--up); color: #fff; }
+  .badge.pending { background: transparent; border: 1.5px solid var(--border); color: var(--text-faint); }
+  .name { font-size: 16px; font-weight: 700; flex-grow: 1; }
+  .status { font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); font-weight: 700; }
+  .chev { color: var(--text-faint); font-size: 15px; margin-left: 2px; }
+  .empty-note { color: var(--text-faint); font-size: 13px; padding: 6px 2px 10px; }
+
+  .reset-link { display: block; text-align: center; margin-top: 26px; font-size: 12px; color: var(--text-faint); text-decoration: underline; cursor: pointer; }
+
+  /* Detail / Manage header */
   .detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
-  .back-btn { width: 34px; height: 34px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer; flex-shrink: 0; }
-  .detail-title { font-size: 17px; font-weight: 700; }
+  .back-btn { width: 34px; height: 34px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer; flex-shrink: 0; }
+  .detail-title { font-family: var(--font-serif); font-size: 19px; font-weight: 600; }
 
-  .today-card { background: var(--surface); border-radius: 14px; padding: 16px; margin-bottom: 20px; }
-  .today-card .lbl { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; }
+  .today-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 20px; }
+  .today-card .lbl { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; font-weight: 700; }
 
   .today-done-view { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
   .today-done-view .info .amt { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--up); }
   .today-done-view .info .note { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
-  .edit-link { font-size: 12px; color: var(--accent); cursor: pointer; white-space: nowrap; padding-top: 2px; }
+  .edit-link { font-size: 12px; color: var(--accent); cursor: pointer; white-space: nowrap; padding-top: 2px; font-weight: 700; }
 
   .form-row { display: flex; gap: 8px; margin-bottom: 10px; }
   .form-row input[type="number"], .form-row input[type="text"] {
-    background: var(--surface-2); border: 1px solid var(--divider); border-radius: 9px; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; color: var(--text);
     padding: 11px 12px; font-size: 14px; font-family: var(--font); outline: none; }
   .form-row input[type="number"] { width: 90px; font-family: var(--font-mono); }
   .form-row input[type="text"] { flex-grow: 1; }
   .form-row input::placeholder { color: var(--text-faint); }
 
   .check-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
-  .check-btn { flex: 1; background: var(--surface-2); border: 1px solid var(--divider); border-radius: 9px; padding: 12px; text-align: center; font-size: 14px; font-weight: 700; color: var(--text-dim); cursor: pointer; }
-  .check-btn.active { background: var(--up); color: #06251a; border-color: transparent; }
+  .check-btn { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 12px; text-align: center; font-size: 14px; font-weight: 700; color: var(--text-dim); cursor: pointer; }
+  .check-btn.active { background: var(--up); color: #fff; border-color: transparent; }
 
   .save-btn { background: var(--accent); color: #fff; border: none; border-radius: 9px; padding: 11px 18px; font-size: 14px; font-weight: 700; cursor: pointer; width: 100%; }
   .save-btn:active { opacity: 0.85; }
   .save-btn.shake { animation: shake 0.3s; background: var(--down); }
   @keyframes shake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-4px);} 75%{transform:translateX(4px);} }
-  .form-hint { font-size: 11px; color: var(--down); margin-top: 6px; text-align: center; display: none; }
+  .form-hint { font-size: 11px; color: var(--down); margin-top: 6px; text-align: center; display: none; font-weight: 600; }
   .form-hint.show { display: block; }
 
-  .section-lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin: 4px 2px 10px; display: flex; justify-content: space-between; align-items: center; }
-
-  .compile-btn { background: var(--surface); border: 1px solid var(--accent-dim); color: var(--accent); border-radius: 10px; padding: 12px; font-size: 13px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 20px; text-align: center; }
+  .compile-btn { background: var(--surface); border: 1.5px solid var(--accent); color: var(--accent); border-radius: 10px; padding: 13px; font-size: 13px; font-weight: 800; cursor: pointer; width: 100%; margin-bottom: 8px; text-align: center; }
   .compile-btn:active { opacity: 0.8; }
-  .compile-note { font-size: 11px; color: var(--text-faint); text-align: center; margin: -12px 0 20px; }
+  .compile-note { font-size: 11px; color: var(--text-faint); text-align: center; margin: 0 0 20px; }
 
-  .log-item { padding: 11px 0; border-bottom: 1px solid var(--divider); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .log-item { padding: 11px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
   .log-date { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-bottom: 3px; }
   .log-line { font-size: 13px; color: var(--text-dim); }
   .log-del { color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 6px; flex-shrink: 0; }
-  .empty-note { color: var(--text-faint); font-size: 13px; padding: 10px 0; }
+
+  .memo-item { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
+  .memo-item .mdate { font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 700; }
+  .memo-item .mpreview { font-size: 12px; color: var(--text-dim); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Manage screen */
+  .manage-row { display: flex; align-items: center; gap: 10px; padding: 13px 14px; margin-bottom: 8px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+  .manage-name { font-size: 15px; font-weight: 700; flex-grow: 1; }
+  .unit-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--accent); background: var(--accent-dim); padding: 3px 8px; border-radius: 6px; }
+  .manage-action { font-size: 13px; color: var(--text-faint); cursor: pointer; padding: 2px 6px; }
+  .manage-action.danger { color: var(--down); }
+
+  .add-form { background: var(--surface); border: 1.5px dashed var(--border); border-radius: 14px; padding: 16px; margin-top: 18px; }
+  .add-form .lbl { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; font-weight: 700; }
+  .unit-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
+  .unit-opt { flex: 1; text-align: center; padding: 10px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; font-weight: 700; color: var(--text-dim); cursor: pointer; }
+  .unit-opt.active { background: var(--accent); color: #fff; border-color: transparent; }
+  .add-btn2 { background: var(--text); color: var(--bg); border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; width: 100%; }
 
   /* Modal */
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 10; display: none; align-items: flex-end; justify-content: center; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(42,38,32,0.5); z-index: 10; display: none; align-items: flex-end; justify-content: center; }
   .modal-backdrop.show { display: flex; }
-  .modal { background: var(--surface); width: 100%; max-width: 480px; border-radius: 20px 20px 0 0; padding: 20px; max-height: 80vh; display: flex; flex-direction: column; }
-  .modal h3 { margin: 0 0 4px; font-size: 16px; }
+  .modal { background: var(--bg); width: 100%; max-width: 480px; border-radius: 20px 20px 0 0; padding: 20px; max-height: 80vh; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+  .modal h3 { margin: 0 0 4px; font-family: var(--font-serif); font-size: 17px; font-weight: 600; }
   .modal .modal-sub { font-size: 12px; color: var(--text-faint); margin-bottom: 14px; }
-  .modal textarea { flex-grow: 1; min-height: 220px; background: var(--surface-2); border: 1px solid var(--divider); border-radius: 10px; color: var(--text); padding: 12px; font-size: 13px; font-family: var(--font); line-height: 1.6; resize: vertical; outline: none; }
+  .modal textarea { flex-grow: 1; min-height: 220px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: 12px; font-size: 13px; font-family: var(--font); line-height: 1.6; resize: vertical; outline: none; }
   .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
   .modal-actions button { flex: 1; border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; }
   .modal-copy { background: var(--accent); color: #fff; }
-  .modal-close { background: var(--surface-2); color: var(--text-dim); }
-
-  .past-memos { margin-top: 6px; }
-  .memo-item { background: var(--surface); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
-  .memo-item .mdate { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
-  .memo-item .mpreview { font-size: 12px; color: var(--text-dim); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  .reset-link { display: block; text-align: center; margin-top: 24px; font-size: 11px; color: var(--text-faint); text-decoration: underline; cursor: pointer; }
+  .modal-close { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border) !important; }
 </style>
 </head>
 <body>
 <div class="app" id="app">
   <div class="screen" id="home">
-    <div class="home-date" id="home-date"></div>
-    <div class="home-title">Daily Lap</div>
-    <div class="home-sub">오늘 <b id="done-count">0</b>/<span id="total-count">8</span>개 기록함</div>
-    <div id="row-list"></div>
+    <div class="home-top">
+      <div>
+        <div class="home-date" id="home-date"></div>
+        <div class="home-title">시간 원장</div>
+      </div>
+      <div class="manage-link" id="manage-link">루틴 관리</div>
+    </div>
+    <div class="home-sub">오늘 <b id="done-count">0</b>/<span id="total-count">0</span>개 기록함</div>
+    <div id="home-lists"></div>
     <div class="reset-link" id="reset-btn">모든 기록 초기화</div>
   </div>
 
@@ -123,6 +149,23 @@
       <div class="detail-title" id="detail-title"></div>
     </div>
     <div id="detail-body"></div>
+  </div>
+
+  <div class="screen" id="manage">
+    <div class="detail-header">
+      <div class="back-btn" id="manage-back-btn">‹</div>
+      <div class="detail-title">루틴 관리</div>
+    </div>
+    <div id="manage-list"></div>
+    <div class="add-form">
+      <div class="lbl">새 루틴 추가</div>
+      <div class="form-row"><input type="text" id="new-routine-name" placeholder="루틴 이름 (예: 독서)"></div>
+      <div class="unit-toggle">
+        <div class="unit-opt active" data-unit="시간">시간으로 기록</div>
+        <div class="unit-opt" data-unit="일">완료 체크로 기록</div>
+      </div>
+      <button class="add-btn2" id="add-routine-btn">추가하기</button>
+    </div>
   </div>
 </div>
 
@@ -140,7 +183,7 @@
 
 <script>
 const STORAGE_KEY = 'daily-lap-data-v2';
-const ROUTINES = [
+const DEFAULT_ROUTINES = [
   { id:'run', name:'러닝', unit:'시간' },
   { id:'str', name:'근력운동', unit:'시간' },
   { id:'diet', name:'식단', unit:'일' },
@@ -153,100 +196,115 @@ const ROUTINES = [
 
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function fmtDate(s) { const d = new Date(s); return `${d.getMonth()+1}.${d.getDate()}`; }
+function slugify(name) { return 'r_' + name.replace(/[^가-힣a-zA-Z0-9]/g,'').slice(0,10) + '_' + Date.now().toString(36).slice(-4); }
 
-let state = {};
+let state = { routines: [], data: {} };
+
 function loadState() {
-  try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e) { state = {}; }
-  ROUTINES.forEach(r => {
-    if (!state[r.id]) state[r.id] = { sessions: [], lastCompiled: null, memos: [] };
-    if (!state[r.id].memos) state[r.id].memos = [];
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch(e) { raw = null; }
+
+  if (!raw) {
+    state = { routines: DEFAULT_ROUTINES.map(r => ({...r})), data: {} };
+  } else if (raw.routines && raw.data) {
+    state = raw; // already new shape
+  } else {
+    // old flat shape migration: { run: {sessions,...}, qt: {...} }
+    state = { routines: DEFAULT_ROUTINES.map(r => ({...r})), data: raw };
+  }
+
+  state.routines.forEach(r => {
+    if (!state.data[r.id]) state.data[r.id] = { sessions: [], lastCompiled: null, memos: [] };
+    if (!state.data[r.id].memos) state.data[r.id].memos = [];
   });
+  saveState();
 }
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
 function todayEntry(r) {
-  return state[r.id].sessions.find(s => s.date === todayStr());
+  return state.data[r.id].sessions.find(s => s.date === todayStr());
 }
 
 function renderHome() {
   document.getElementById('home-date').textContent = new Date().toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'long' });
-  const list = document.getElementById('row-list');
-  let doneCount = 0;
-  list.innerHTML = ROUTINES.map(r => {
+  const routines = state.routines;
+  const doneList = [], pendingList = [];
+  routines.forEach(r => { (todayEntry(r) ? doneList : pendingList).push(r); });
+
+  document.getElementById('done-count').textContent = doneList.length;
+  document.getElementById('total-count').textContent = routines.length;
+
+  const rowHtml = (r) => {
     const t = todayEntry(r);
-    if (t) doneCount++;
     const status = t ? (r.unit === '시간' ? `${t.amount}시간` : '완료') : '미기록';
-    return `<div class="row" data-id="${r.id}">
-      <div class="row-badge ${t ? 'done' : 'pending'}">${t ? '✓' : '·'}</div>
-      <div class="row-name">${r.name}</div>
-      <div class="row-status">${status}</div>
-      <div class="row-chev">›</div>
+    return `<div class="row ${t?'done':''}" data-id="${r.id}">
+      <div class="badge ${t?'done':'pending'}">${t?'✓':'·'}</div>
+      <div class="name">${r.name}</div>
+      <div class="status">${status}</div>
+      <div class="chev">›</div>
     </div>`;
-  }).join('');
-  document.getElementById('done-count').textContent = doneCount;
-  document.getElementById('total-count').textContent = ROUTINES.length;
-  list.querySelectorAll('.row').forEach(el => el.addEventListener('click', () => openDetail(el.getAttribute('data-id'))));
+  };
+
+  let html = '';
+  if (routines.length === 0) {
+    html = `<div class="empty-note">아직 루틴이 없어요. '루틴 관리'에서 추가해보세요.</div>`;
+  } else {
+    if (doneList.length) html += `<div class="section-lbl">완료</div>` + doneList.map(rowHtml).join('');
+    html += `<div class="section-lbl">${doneList.length ? '아직' : '오늘의 루틴'}</div>`;
+    html += pendingList.length ? pendingList.map(rowHtml).join('') : `<div class="empty-note">모두 완료했어요 🎉</div>`;
+  }
+  document.getElementById('home-lists').innerHTML = html;
+  document.querySelectorAll('#home-lists .row').forEach(el => el.addEventListener('click', () => openDetail(el.getAttribute('data-id'))));
 }
 
 let currentId = null;
 let editingToday = false;
 
 function openDetail(id) {
-  currentId = id;
-  editingToday = false;
+  currentId = id; editingToday = false;
   renderDetail();
-  document.getElementById('app').classList.add('open');
+  document.getElementById('app').classList.add('open-detail');
 }
-function closeDetail() { document.getElementById('app').classList.remove('open'); renderHome(); }
+function closeDetail() { document.getElementById('app').classList.remove('open-detail'); renderHome(); }
 
 function renderDetail() {
-  const r = ROUTINES.find(x => x.id === currentId);
+  const r = state.routines.find(x => x.id === currentId);
+  if (!r) { closeDetail(); return; }
   document.getElementById('detail-title').textContent = r.name;
   const t = todayEntry(r);
-  const sessions = state[r.id].sessions.slice().sort((a,b) => b.date.localeCompare(a.date));
+  const sessions = state.data[r.id].sessions.slice().sort((a,b) => b.date.localeCompare(a.date));
 
   let html = `<div class="today-card"><div class="lbl">오늘</div>`;
-
   if (t && !editingToday) {
-    html += `
-      <div class="today-done-view">
-        <div class="info">
-          <div class="amt">${r.unit === '시간' ? t.amount + '시간' : '완료'}</div>
-          <div class="note">${t.note ? escapeHtml(t.note) : '메모 없음'}</div>
-        </div>
+    html += `<div class="today-done-view">
+        <div class="info"><div class="amt">${r.unit === '시간' ? t.amount + '시간' : '완료'}</div>
+        <div class="note">${t.note ? escapeHtml(t.note) : '메모 없음'}</div></div>
         <div class="edit-link" id="edit-today">수정</div>
       </div>`;
   } else {
     if (r.unit === '시간') {
-      html += `
-        <div class="form-row">
+      html += `<div class="form-row">
           <input type="number" step="0.1" min="0" inputmode="decimal" id="amount-input" placeholder="시간" value="${t ? t.amount : ''}">
           <input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}">
         </div>`;
     } else {
-      html += `
-        <div class="check-toggle">
-          <div class="check-btn ${t ? 'active' : ''}" id="check-btn">${t ? '✓ 완료함' : '오늘 완료'}</div>
-        </div>
-        <div class="form-row">
-          <input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}">
-        </div>`;
+      html += `<div class="check-toggle"><div class="check-btn ${t?'active':''}" id="check-btn">${t ? '✓ 완료함' : '오늘 완료'}</div></div>
+        <div class="form-row"><input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}"></div>`;
     }
     html += `<button class="save-btn" id="save-btn">저장</button><div class="form-hint" id="form-hint">${r.unit==='시간' ? '시간을 0보다 크게 입력해주세요' : '먼저 완료 체크를 눌러주세요'}</div>`;
   }
   html += `</div>`;
 
   html += `<button class="compile-btn" id="compile-btn">✎ 지금까지 기록 정리해서 메모 만들기</button>`;
-  html += `<div class="compile-note">${state[r.id].lastCompiled ? '마지막 정리: ' + state[r.id].lastCompiled : '아직 정리한 적 없음 · 전체 기록 기준'}</div>`;
+  html += `<div class="compile-note">${state.data[r.id].lastCompiled ? '마지막 정리: ' + state.data[r.id].lastCompiled : '아직 정리한 적 없음 · 전체 기록 기준'}</div>`;
 
-  if (state[r.id].memos.length) {
-    html += `<div class="section-lbl">지난 메모</div><div class="past-memos">`;
-    html += state[r.id].memos.slice().reverse().map((m, idx) => `
-      <div class="memo-item" data-memo-idx="${state[r.id].memos.length - 1 - idx}">
+  if (state.data[r.id].memos.length) {
+    html += `<div class="section-lbl">지난 메모</div>`;
+    html += state.data[r.id].memos.slice().reverse().map((m, idx) => `
+      <div class="memo-item" data-memo-idx="${state.data[r.id].memos.length - 1 - idx}">
         <div class="mdate">${m.from} ~ ${m.to}</div>
         <div class="mpreview">${escapeHtml(m.text.slice(0,50))}...</div>
       </div>`).join('');
-    html += `</div>`;
   }
 
   html += `<div class="section-lbl">전체 기록 (${sessions.length}건)</div>`;
@@ -266,90 +324,123 @@ function attachDetailEvents(r) {
 
   let checkActive = !!todayEntry(r);
   const checkBtn = document.getElementById('check-btn');
-  if (checkBtn) {
-    checkBtn.addEventListener('click', () => {
-      checkActive = !checkActive;
-      checkBtn.classList.toggle('active', checkActive);
-      checkBtn.textContent = checkActive ? '✓ 완료함' : '오늘 완료';
-    });
-  }
+  if (checkBtn) checkBtn.addEventListener('click', () => {
+    checkActive = !checkActive;
+    checkBtn.classList.toggle('active', checkActive);
+    checkBtn.textContent = checkActive ? '✓ 완료함' : '오늘 완료';
+  });
 
   const saveBtn = document.getElementById('save-btn');
-  if (saveBtn) {
-    saveBtn.addEventListener('click', () => {
-      const hint = document.getElementById('form-hint');
-      let amount;
-      if (r.unit === '시간') {
-        amount = parseFloat(document.getElementById('amount-input').value);
-        if (isNaN(amount) || amount <= 0) {
-          hint.classList.add('show'); saveBtn.classList.add('shake');
-          setTimeout(() => saveBtn.classList.remove('shake'), 300);
-          return;
-        }
-      } else {
-        if (!checkActive) {
-          hint.classList.add('show'); saveBtn.classList.add('shake');
-          setTimeout(() => saveBtn.classList.remove('shake'), 300);
-          return;
-        }
-        amount = 1;
-      }
-      const note = document.getElementById('note-input').value.trim();
-      const today = todayStr();
-      const list = state[r.id].sessions;
-      const idx = list.findIndex(s => s.date === today);
-      const entry = { date: today, amount, note };
-      if (idx >= 0) list[idx] = entry; else list.push(entry);
-      saveState();
-      editingToday = false;
-      renderDetail();
-    });
-  }
-
-  document.querySelectorAll('[data-del]').forEach(el => {
-    el.addEventListener('click', () => {
-      const date = el.getAttribute('data-del');
-      state[r.id].sessions = state[r.id].sessions.filter(s => s.date !== date);
-      saveState(); renderDetail();
-    });
+  if (saveBtn) saveBtn.addEventListener('click', () => {
+    const hint = document.getElementById('form-hint');
+    let amount;
+    if (r.unit === '시간') {
+      amount = parseFloat(document.getElementById('amount-input').value);
+      if (isNaN(amount) || amount <= 0) { hint.classList.add('show'); saveBtn.classList.add('shake'); setTimeout(()=>saveBtn.classList.remove('shake'),300); return; }
+    } else {
+      if (!checkActive) { hint.classList.add('show'); saveBtn.classList.add('shake'); setTimeout(()=>saveBtn.classList.remove('shake'),300); return; }
+      amount = 1;
+    }
+    const note = document.getElementById('note-input').value.trim();
+    const today = todayStr();
+    const list = state.data[r.id].sessions;
+    const idx = list.findIndex(s => s.date === today);
+    const entry = { date: today, amount, note };
+    if (idx >= 0) list[idx] = entry; else list.push(entry);
+    saveState(); editingToday = false; renderDetail();
   });
+
+  document.querySelectorAll('[data-del]').forEach(el => el.addEventListener('click', () => {
+    const date = el.getAttribute('data-del');
+    state.data[r.id].sessions = state.data[r.id].sessions.filter(s => s.date !== date);
+    saveState(); renderDetail();
+  }));
 
   const compileBtn = document.getElementById('compile-btn');
   if (compileBtn) compileBtn.addEventListener('click', () => compileMemo(r));
 
-  document.querySelectorAll('[data-memo-idx]').forEach(el => {
-    el.addEventListener('click', () => {
-      const idx = parseInt(el.getAttribute('data-memo-idx'));
-      const m = state[r.id].memos[idx];
-      openModal(`${r.name} 메모 (${m.from} ~ ${m.to})`, `${m.from} ~ ${m.to} 기간 기록`, m.text);
-    });
-  });
+  document.querySelectorAll('[data-memo-idx]').forEach(el => el.addEventListener('click', () => {
+    const idx = parseInt(el.getAttribute('data-memo-idx'));
+    const m = state.data[r.id].memos[idx];
+    openModal(`${r.name} 메모 (${m.from} ~ ${m.to})`, `${m.from} ~ ${m.to} 기간 기록`, m.text);
+  }));
 }
 
 function compileMemo(r) {
-  const since = state[r.id].lastCompiled;
-  const sessions = state[r.id].sessions
-    .filter(s => !since || s.date > since)
-    .sort((a,b) => a.date.localeCompare(b.date));
-
+  const since = state.data[r.id].lastCompiled;
+  const sessions = state.data[r.id].sessions.filter(s => !since || s.date > since).sort((a,b) => a.date.localeCompare(b.date));
   if (sessions.length === 0) {
     openModal(`${r.name} 정리`, '새로 추가된 기록이 없어요', '마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.');
     return;
   }
-
   const lines = sessions.map(s => `- ${s.date} (${fmtDate(s.date)}): ${r.unit === '시간' ? s.amount + '시간' : '완료'}${s.note ? ' — ' + s.note : ''}`);
   const totalAmount = sessions.reduce((a,s) => a + s.amount, 0);
   const from = sessions[0].date, to = sessions[sessions.length-1].date;
-
   const text = `[${r.name} 기록 정리 — ${from} ~ ${to}]\n\n${lines.join('\n')}\n\n총 ${sessions.length}회, 누적 ${totalAmount}${r.unit}\n\n---\n위 기록을 보고 패턴을 진단하고, 앞으로 어떻게 하면 좋을지 방향을 제안해줘.`;
-
-  state[r.id].memos.push({ from, to, text });
-  state[r.id].lastCompiled = to;
+  state.data[r.id].memos.push({ from, to, text });
+  state.data[r.id].lastCompiled = to;
   saveState();
-
   openModal(`${r.name} 메모 생성 완료`, `${from} ~ ${to} · ${sessions.length}건 · 클로드에 붙여넣어 보세요`, text);
   renderDetail();
 }
+
+/* ===== Manage screen ===== */
+let newRoutineUnit = '시간';
+
+function openManage() {
+  renderManage();
+  document.getElementById('app').classList.add('open-manage');
+}
+function closeManage() { document.getElementById('app').classList.remove('open-manage'); renderHome(); }
+
+function renderManage() {
+  const list = document.getElementById('manage-list');
+  list.innerHTML = state.routines.map(r => `
+    <div class="manage-row" data-id="${r.id}">
+      <span class="unit-badge">${r.unit}</span>
+      <div class="manage-name">${r.name}</div>
+      <div class="manage-action" data-rename="${r.id}">이름변경</div>
+      <div class="manage-action danger" data-remove="${r.id}">삭제</div>
+    </div>
+  `).join('') || `<div class="empty-note">루틴이 없어요. 아래에서 추가해보세요.</div>`;
+
+  list.querySelectorAll('[data-rename]').forEach(el => el.addEventListener('click', () => {
+    const id = el.getAttribute('data-rename');
+    const r = state.routines.find(x => x.id === id);
+    const newName = prompt('새 이름을 입력하세요', r.name);
+    if (newName && newName.trim()) { r.name = newName.trim(); saveState(); renderManage(); }
+  }));
+  list.querySelectorAll('[data-remove]').forEach(el => el.addEventListener('click', () => {
+    const id = el.getAttribute('data-remove');
+    const r = state.routines.find(x => x.id === id);
+    if (confirm(`'${r.name}' 루틴을 삭제할까요? 기록도 함께 사라져요.`)) {
+      state.routines = state.routines.filter(x => x.id !== id);
+      delete state.data[id];
+      saveState(); renderManage();
+    }
+  }));
+
+  document.getElementById('new-routine-name').value = '';
+}
+
+document.querySelectorAll('.unit-opt').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.unit-opt').forEach(o => o.classList.remove('active'));
+    el.classList.add('active');
+    newRoutineUnit = el.getAttribute('data-unit') === '일' ? '일' : '시간';
+  });
+});
+
+document.getElementById('add-routine-btn').addEventListener('click', () => {
+  const nameInput = document.getElementById('new-routine-name');
+  const name = nameInput.value.trim();
+  if (!name) { nameInput.focus(); return; }
+  const id = slugify(name);
+  state.routines.push({ id, name, unit: newRoutineUnit });
+  state.data[id] = { sessions: [], lastCompiled: null, memos: [] };
+  saveState();
+  renderManage();
+});
 
 function openModal(title, sub, text) {
   document.getElementById('modal-title').textContent = title;
@@ -358,26 +449,22 @@ function openModal(title, sub, text) {
   document.getElementById('modal-backdrop').classList.add('show');
 }
 function closeModal() { document.getElementById('modal-backdrop').classList.remove('show'); }
-
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('modal-copy').addEventListener('click', async () => {
   const text = document.getElementById('modal-text').value;
   try {
     await navigator.clipboard.writeText(text);
-    const btn = document.getElementById('modal-copy');
-    const orig = btn.textContent;
-    btn.textContent = '복사됨!';
-    setTimeout(() => btn.textContent = orig, 1200);
-  } catch (e) {
-    document.getElementById('modal-text').select();
-    document.execCommand('copy');
-  }
+    const btn = document.getElementById('modal-copy'); const orig = btn.textContent;
+    btn.textContent = '복사됨!'; setTimeout(() => btn.textContent = orig, 1200);
+  } catch (e) { document.getElementById('modal-text').select(); document.execCommand('copy'); }
 });
 
 function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
 function escapeAttr(str) { return str.replace(/"/g, '&quot;'); }
 
 document.getElementById('back-btn').addEventListener('click', closeDetail);
+document.getElementById('manage-link').addEventListener('click', openManage);
+document.getElementById('manage-back-btn').addEventListener('click', closeManage);
 document.getElementById('reset-btn').addEventListener('click', () => {
   if (confirm('모든 기록을 초기화할까요? 되돌릴 수 없어요.')) {
     localStorage.removeItem(STORAGE_KEY);
@@ -388,9 +475,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 loadState();
 renderHome();
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('service-worker.js').catch(()=>{});
-}
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
 </script>
 </body>
 </html>
