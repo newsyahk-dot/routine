@@ -22,7 +22,7 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); overflow-x: hidden; }
-  .app { max-width: 480px; margin: 0 auto; position: relative; min-height: 100vh; overflow: hidden; }
+  .app { max-width: 480px; margin: 0 auto; position: relative; min-height: 100vh; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
   .screen { position: absolute; top: 0; left: 0; width: 100%; min-height: 100vh; background: var(--bg);
     transition: transform 0.3s cubic-bezier(0.22,1,0.36,1); padding: max(26px, env(safe-area-inset-top)) 20px 60px; }
