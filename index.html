@@ -182,7 +182,7 @@
       <div class="lbl">새 루틴 추가</div>
       <div class="form-row"><input type="text" id="new-routine-name" placeholder="루틴 이름 (예: 독서)"></div>
       <div class="unit-toggle">
-        <div class="unit-opt active" data-unit="시간">시간으로 기록</div>
+        <div class="unit-opt active" data-unit="분">분으로 기록</div>
         <div class="unit-opt" data-unit="일">완료 체크로 기록</div>
       </div>
       <button class="add-btn2" id="add-routine-btn">추가하기</button>
@@ -205,14 +205,14 @@
 <script>
 const STORAGE_KEY = 'daily-lap-data-v2';
 const DEFAULT_ROUTINES = [
-  { id:'run', name:'러닝', unit:'시간' },
-  { id:'str', name:'근력운동', unit:'시간' },
+  { id:'run', name:'러닝', unit:'분' },
+  { id:'str', name:'근력운동', unit:'분' },
   { id:'diet', name:'식단', unit:'일' },
-  { id:'eng', name:'영어공부', unit:'시간' },
-  { id:'bib', name:'말씀공부', unit:'시간' },
+  { id:'eng', name:'영어공부', unit:'분' },
+  { id:'bib', name:'말씀공부', unit:'분' },
   { id:'qt', name:'QT', unit:'일' },
   { id:'etf', name:'ETF', unit:'일' },
-  { id:'etc', name:'기타연습', unit:'시간' },
+  { id:'etc', name:'기타연습', unit:'분' },
 ];
 
 function todayStr() { return new Date().toISOString().slice(0,10); }
@@ -238,6 +238,15 @@ function loadState() {
     if (!state.data[r.id]) state.data[r.id] = { sessions: [], lastCompiled: null, memos: [] };
     if (!state.data[r.id].memos) state.data[r.id].memos = [];
   });
+
+  // 시간(hour) -> 분(minute) 단위 마이그레이션 (기존 데이터 보존)
+  state.routines.forEach(r => {
+    if (r.unit === '시간') {
+      r.unit = '분';
+      state.data[r.id].sessions.forEach(s => { s.amount = Math.round(s.amount * 60); });
+    }
+  });
+
   if (!state.globalMemos) state.globalMemos = [];
   saveState();
 }
@@ -277,7 +286,7 @@ function renderHome() {
 
   const rowHtml = (r) => {
     const t = todayEntry(r);
-    const status = t ? (r.unit === '시간' ? `${t.amount}시간` : '완료') : '미기록';
+    const status = t ? (r.unit === '분' ? `${t.amount}분` : '완료') : '미기록';
     return `<div class="row ${t?'done':''}" data-id="${r.id}">
       <div class="badge ${t?'done':'pending'}">${t?'✓':'·'}</div>
       <div class="name">${r.name}</div>
@@ -335,21 +344,21 @@ function renderDetail() {
   let html = `<div class="today-card"><div class="lbl">오늘</div>`;
   if (t && !editingToday) {
     html += `<div class="today-done-view">
-        <div class="info"><div class="amt">${r.unit === '시간' ? t.amount + '시간' : '완료'}</div>
+        <div class="info"><div class="amt">${r.unit === '분' ? t.amount + '분' : '완료'}</div>
         <div class="note">${t.note ? escapeHtml(t.note) : '메모 없음'}</div></div>
         <div class="edit-link" id="edit-today">수정</div>
       </div>`;
   } else {
-    if (r.unit === '시간') {
+    if (r.unit === '분') {
       html += `<div class="form-row">
-          <input type="number" step="0.1" min="0" inputmode="decimal" id="amount-input" placeholder="시간" value="${t ? t.amount : ''}">
+          <input type="number" step="1" min="0" inputmode="numeric" id="amount-input" placeholder="분 (예: 30)" value="${t ? t.amount : ''}">
           <input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}">
         </div>`;
     } else {
       html += `<div class="check-toggle"><div class="check-btn ${t?'active':''}" id="check-btn">${t ? '✓ 완료함' : '오늘 완료'}</div></div>
         <div class="form-row"><input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}"></div>`;
     }
-    html += `<button class="save-btn" id="save-btn">저장</button><div class="form-hint" id="form-hint">${r.unit==='시간' ? '시간을 0보다 크게 입력해주세요' : '먼저 완료 체크를 눌러주세요'}</div>`;
+    html += `<button class="save-btn" id="save-btn">저장</button><div class="form-hint" id="form-hint">${r.unit==='분' ? '분을 0보다 크게 입력해주세요' : '먼저 완료 체크를 눌러주세요'}</div>`;
   }
   html += `</div>`;
 
@@ -368,7 +377,7 @@ function renderDetail() {
   html += `<div class="section-lbl">전체 기록 (${sessions.length}건)</div>`;
   html += sessions.length ? sessions.map(s => `
     <div class="log-item">
-      <div><div class="log-date">${s.date}</div><div class="log-line">${r.unit === '시간' ? s.amount + '시간' : '완료'}${s.note ? ' · ' + escapeHtml(s.note) : ''}</div></div>
+      <div><div class="log-date">${s.date}</div><div class="log-line">${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' · ' + escapeHtml(s.note) : ''}</div></div>
       <div class="log-del" data-del="${s.date}">삭제</div>
     </div>`).join('') : `<div class="empty-note">아직 기록이 없어요.</div>`;
 
@@ -402,7 +411,7 @@ function attachDetailEvents(r) {
   if (saveBtn) saveBtn.addEventListener('click', () => {
     const hint = document.getElementById('form-hint');
     let amount;
-    if (r.unit === '시간') {
+    if (r.unit === '분') {
       amount = parseFloat(document.getElementById('amount-input').value);
       if (isNaN(amount) || amount <= 0) { hint.classList.add('show'); saveBtn.classList.add('shake'); setTimeout(()=>saveBtn.classList.remove('shake'),300); return; }
     } else {
@@ -441,7 +450,7 @@ function compileMemo(r) {
     openModal(`${r.name} 정리`, '새로 추가된 기록이 없어요', '마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.');
     return;
   }
-  const lines = sessions.map(s => `- ${s.date} (${fmtDate(s.date)}): ${r.unit === '시간' ? s.amount + '시간' : '완료'}${s.note ? ' — ' + s.note : ''}`);
+  const lines = sessions.map(s => `- ${s.date} (${fmtDate(s.date)}): ${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' — ' + s.note : ''}`);
   const totalAmount = sessions.reduce((a,s) => a + s.amount, 0);
   const from = sessions[0].date, to = sessions[sessions.length-1].date;
   const streak = computeStreak(r);
@@ -463,7 +472,7 @@ function compileAllMemo() {
     const since = state.data[r.id].lastCompiled;
     const sessions = state.data[r.id].sessions.filter(s => !since || s.date > since).sort((a,b) => a.date.localeCompare(b.date));
     if (sessions.length === 0) return;
-    const lines = sessions.map(s => `  - ${s.date} (${fmtDate(s.date)}): ${r.unit === '시간' ? s.amount + '시간' : '완료'}${s.note ? ' — ' + s.note : ''}`);
+    const lines = sessions.map(s => `  - ${s.date} (${fmtDate(s.date)}): ${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' — ' + s.note : ''}`);
     const totalAmount = sessions.reduce((a,s) => a + s.amount, 0);
     const streak = computeStreak(r), last7 = computeLast7(r), allTime = computeAllTimeTotal(r);
     sections.push(`### ${r.name}\n최근 7일 중 ${last7}일 실천 · 연속 ${streak}일 · 전체 누적 ${allTime}${r.unit}\n${lines.join('\n')}\n(이번 구간 ${sessions.length}회, ${totalAmount}${r.unit})`);
@@ -486,7 +495,7 @@ function compileAllMemo() {
 }
 
 /* ===== Manage screen ===== */
-let newRoutineUnit = '시간';
+let newRoutineUnit = '분';
 
 function openManage() {
   renderManage();
@@ -528,7 +537,7 @@ document.querySelectorAll('.unit-opt').forEach(el => {
   el.addEventListener('click', () => {
     document.querySelectorAll('.unit-opt').forEach(o => o.classList.remove('active'));
     el.classList.add('active');
-    newRoutineUnit = el.getAttribute('data-unit') === '일' ? '일' : '시간';
+    newRoutineUnit = el.getAttribute('data-unit') === '일' ? '일' : '분';
   });
 });
 
