@@ -69,12 +69,12 @@
   .today-done-view .info .note { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
   .edit-link { font-size: 12px; color: var(--accent); cursor: pointer; white-space: nowrap; padding-top: 2px; font-weight: 700; }
 
-  .form-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .form-row { display: flex; gap: 8px; margin-bottom: 10px; min-width: 0; }
   .form-row input[type="number"], .form-row input[type="text"] {
     background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; color: var(--text);
     padding: 11px 12px; font-size: 14px; font-family: var(--font); outline: none; }
   .form-row input[type="number"] { width: 90px; font-family: var(--font-mono); }
-  .form-row input[type="text"] { flex-grow: 1; }
+  .form-row input[type="text"] { flex-grow: 1; min-width: 0; }
   .form-row input::placeholder { color: var(--text-faint); }
 
   .check-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
