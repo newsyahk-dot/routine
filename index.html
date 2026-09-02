@@ -59,6 +59,32 @@
 
   .reset-link { display: block; text-align: center; margin-top: 26px; font-size: 12px; color: var(--text-faint); text-decoration: underline; cursor: pointer; }
 
+  .week-highlight { font-size: 13px; color: var(--accent); font-weight: 600; margin: -14px 0 20px; display: none; }
+
+  .toast {
+    position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: var(--bg); padding: 12px 20px; border-radius: 30px;
+    font-size: 14px; font-weight: 700; opacity: 0; pointer-events: none; z-index: 500;
+    transition: opacity 0.25s ease, transform 0.25s ease; box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    max-width: 88%; text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .lock-screen {
+    position: fixed; inset: 0; background: var(--bg); z-index: 1000;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .lock-inner { text-align: center; width: 100%; max-width: 300px; }
+  .lock-inner.shake { animation: shake 0.3s; }
+  .lock-title { font-family: var(--font-serif); font-size: 22px; margin-bottom: 24px; }
+  .lock-input {
+    width: 100%; text-align: center; font-size: 28px; letter-spacing: 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; color: var(--text); outline: none; font-family: var(--font-mono);
+  }
+  .lock-hint { font-size: 12px; color: var(--text-faint); margin-top: 12px; }
+  .lock-hint.error { color: var(--down); }
+
   /* Detail / Manage header */
   .detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
   .back-btn { width: 34px; height: 34px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer; flex-shrink: 0; }
@@ -146,7 +172,15 @@
 </style>
 </head>
 <body>
+<div class="lock-screen" id="lock-screen" style="display:none;">
+  <div class="lock-inner">
+    <div class="lock-title">🔒 시간 원장</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="lock-pin-input" class="lock-input" placeholder="••••" autocomplete="off">
+    <div class="lock-hint" id="lock-hint">PIN 4자리를 입력하세요</div>
+  </div>
+</div>
 <div class="app" id="app">
+  <div class="toast" id="toast"></div>
   <div class="screen" id="home">
     <div class="home-top">
       <div>
@@ -156,6 +190,7 @@
       <div class="manage-link" id="manage-link">루틴 관리</div>
     </div>
     <div class="home-sub">오늘 <b id="done-count">0</b>/<span id="total-count">0</span>개 기록함</div>
+    <div class="week-highlight" id="week-highlight"></div>
     <div id="home-lists"></div>
     <button class="compile-all-btn" id="compile-all-btn">🗂 전체 루틴 정리해서 메모 만들기</button>
     <div id="global-memo-list"></div>
@@ -188,6 +223,9 @@
       <div class="lbl">옵시디언 볼트로 내보내기</div>
       <button class="backup-btn" id="obsidian-export-btn" style="width:100%;">📦 볼트용 ZIP 다운로드</button>
       <div class="backup-note">루틴별 폴더에 날짜별 .md 파일 + routines.json이 담긴 zip이에요. 옵시디언 볼트에 압축 풀어 넣고, generate_dashboard.py를 실행하면 장기 대시보드가 만들어져요.</div>
+    </div>
+    <div class="backup-box">
+      <div id="pin-box"></div>
     </div>
     <div class="backup-box">
       <div id="sync-box"></div>
@@ -253,6 +291,7 @@ function loadState() {
     if (!state.data[r.id]) state.data[r.id] = { sessions: [], lastCompiled: null, memos: [] };
     if (!state.data[r.id].memos) state.data[r.id].memos = [];
     if (state.data[r.id].freezes === undefined) state.data[r.id].freezes = 3;
+    if (!state.data[r.id].celebrated) state.data[r.id].celebrated = { streaks: [], counts: [] };
   });
 
   // 시간(hour) -> 분(minute) 단위 마이그레이션 (기존 데이터 보존)
@@ -284,12 +323,58 @@ function computeLast7(r) {
   let count = 0;
   for (let i=0;i<7;i++) {
     const d = new Date(); d.setDate(d.getDate()-i);
-    if (state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10))) count++;
+    const e = state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10));
+    if (e && !e.skipped) count++;
   }
   return count;
 }
 function computeAllTimeTotal(r) {
   return state.data[r.id].sessions.reduce((a,s) => a + s.amount, 0);
+}
+
+/* ===== Milestones & motivation ===== */
+const STREAK_MILESTONES = [7, 14, 30, 50, 100, 200, 365];
+const COUNT_MILESTONES = [10, 30, 50, 100, 200, 365, 500, 1000];
+
+function checkMilestones(r) {
+  if (!state.data[r.id].celebrated) state.data[r.id].celebrated = { streaks: [], counts: [] };
+  const cel = state.data[r.id].celebrated;
+  const streak = computeStreak(r);
+  const count = state.data[r.id].sessions.filter(s => !s.skipped).length;
+
+  if (STREAK_MILESTONES.includes(streak) && !cel.streaks.includes(streak)) {
+    cel.streaks.push(streak);
+    saveState();
+    showToast(`🎉 ${r.name} 연속 ${streak}일 달성!`);
+  } else if (COUNT_MILESTONES.includes(count) && !cel.counts.includes(count)) {
+    cel.counts.push(count);
+    saveState();
+    showToast(`🎉 ${r.name} 누적 ${count}회 달성!`);
+  }
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function computeWeeklyHighlight() {
+  let best = null, bestCount = 0, ties = [];
+  state.routines.forEach(r => {
+    const c = computeLast7(r);
+    if (c > bestCount) { bestCount = c; best = r; ties = [r]; }
+    else if (c === bestCount && c > 0 && best) { ties.push(r); }
+  });
+  if (!best || bestCount === 0) return null;
+  if (ties.length > 1) {
+    return `이번 주 가장 꾸준했던 루틴은 ${ties.map(r=>r.name).join(', ')}예요 (7일 중 ${bestCount}일)`;
+  }
+  return `이번 주 가장 꾸준했던 루틴은 ${best.name}예요 (7일 중 ${bestCount}일)`;
 }
 
 function renderHome() {
@@ -304,6 +389,10 @@ function renderHome() {
 
   document.getElementById('done-count').textContent = doneList.length;
   document.getElementById('total-count').textContent = routines.length;
+
+  const highlight = computeWeeklyHighlight();
+  const hEl = document.getElementById('week-highlight');
+  if (hEl) { hEl.textContent = highlight || ''; hEl.style.display = highlight ? 'block' : 'none'; }
 
   const rowHtml = (r) => {
     const t = todayEntry(r);
@@ -337,8 +426,10 @@ function renderHome() {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       const id = el.getAttribute('data-quick');
+      const r = state.routines.find(x => x.id === id);
       state.data[id].sessions.push({ date: todayStr(), amount: 1, note: '' });
       saveState();
+      if (r) checkMilestones(r);
       renderHome();
     });
   });
@@ -477,7 +568,7 @@ function attachDetailEvents(r) {
     const idx = list.findIndex(s => s.date === today);
     const entry = { date: today, amount, note };
     if (idx >= 0) list[idx] = entry; else list.push(entry);
-    saveState(); editingToday = false; renderDetail();
+    saveState(); checkMilestones(r); editingToday = false; renderDetail();
   });
 
   document.querySelectorAll('[data-del]').forEach(el => el.addEventListener('click', () => {
@@ -496,7 +587,7 @@ function attachDetailEvents(r) {
     const idx = list.findIndex(s => s.date === today);
     const entry = { date: today, amount: 0, frozen: true };
     if (idx >= 0) list[idx] = entry; else list.push(entry);
-    saveState(); editingToday = false; renderDetail();
+    saveState(); checkMilestones(r); editingToday = false; renderDetail();
   });
 
   const skipBtn = document.getElementById('skip-btn');
@@ -589,6 +680,7 @@ function closeManage() { document.getElementById('app').classList.remove('open-m
 
 function renderManage() {
   renderSyncBox();
+  renderPinBox();
   const list = document.getElementById('manage-list');
   list.innerHTML = state.routines.map(r => `
     <div class="manage-row" data-id="${r.id}">
@@ -1000,10 +1092,93 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   }
 });
 
-loadState();
-renderHome();
+/* ===== PIN lock ===== */
+const PIN_KEY = 'daily-lap-pin';
+function getPin() { return localStorage.getItem(PIN_KEY) || ''; }
+function setPinValue(p) { localStorage.setItem(PIN_KEY, p); }
+function clearPinValue() { localStorage.removeItem(PIN_KEY); }
 
-if ('serviceWorker' in navigator) { navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
+function renderPinBox() {
+  const box = document.getElementById('pin-box');
+  if (!box) return;
+  const pin = getPin();
+  if (!pin) {
+    box.innerHTML = `
+      <div class="lbl">앱 잠금 (PIN)</div>
+      <div class="backup-note">QT/말씀공부 같은 개인적인 메모가 있다면, 앱 진입 시 4자리 PIN을 요구하게 설정할 수 있어요.</div>
+      <div class="form-row" style="margin-top:8px;">
+        <input type="password" inputmode="numeric" maxlength="4" id="pin-new-input" placeholder="새 PIN 4자리">
+        <input type="password" inputmode="numeric" maxlength="4" id="pin-confirm-input" placeholder="다시 입력">
+      </div>
+      <button class="backup-btn" id="pin-set-btn" style="width:100%;">PIN 설정</button>
+      <div class="backup-note" id="pin-status"></div>`;
+    document.getElementById('pin-set-btn').addEventListener('click', () => {
+      const a = document.getElementById('pin-new-input').value;
+      const b = document.getElementById('pin-confirm-input').value;
+      const statusEl = document.getElementById('pin-status');
+      if (!/^\d{4}$/.test(a)) { statusEl.textContent = '숫자 4자리를 입력해주세요'; statusEl.style.color = 'var(--down)'; return; }
+      if (a !== b) { statusEl.textContent = '두 값이 서로 달라요'; statusEl.style.color = 'var(--down)'; return; }
+      setPinValue(a);
+      renderPinBox();
+    });
+  } else {
+    box.innerHTML = `
+      <div class="lbl">앱 잠금 (PIN)</div>
+      <div class="backup-note">🔒 PIN 잠금 사용 중이에요. 다음에 앱을 열 때부터 PIN을 입력해야 해요. (이 브라우저에만 저장돼요)</div>
+      <div class="backup-row" style="margin-top:8px;">
+        <button class="backup-btn" id="pin-change-btn">PIN 변경</button>
+        <button class="backup-btn" id="pin-remove-btn">잠금 해제</button>
+      </div>`;
+    document.getElementById('pin-change-btn').addEventListener('click', () => {
+      const current = prompt('현재 PIN을 입력하세요');
+      if (current !== pin) { alert('PIN이 일치하지 않아요'); return; }
+      const newPin = prompt('새 PIN 4자리를 입력하세요') || '';
+      if (!/^\d{4}$/.test(newPin)) { alert('숫자 4자리로 입력해주세요'); return; }
+      setPinValue(newPin);
+      alert('변경되었어요');
+      renderPinBox();
+    });
+    document.getElementById('pin-remove-btn').addEventListener('click', () => {
+      const current = prompt('현재 PIN을 입력하세요');
+      if (current !== pin) { alert('PIN이 일치하지 않아요'); return; }
+      clearPinValue();
+      renderPinBox();
+    });
+  }
+}
+
+function proceedInit() {
+  loadState();
+  renderHome();
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
+}
+
+function showLockIfNeeded() {
+  const pin = getPin();
+  if (!pin) { proceedInit(); return; }
+  const lockScreen = document.getElementById('lock-screen');
+  const input = document.getElementById('lock-pin-input');
+  const hint = document.getElementById('lock-hint');
+  lockScreen.style.display = 'flex';
+  input.value = '';
+  setTimeout(() => input.focus(), 100);
+  input.addEventListener('input', () => {
+    if (input.value.length === 4) {
+      if (input.value === pin) {
+        lockScreen.style.display = 'none';
+        proceedInit();
+      } else {
+        hint.textContent = '비밀번호가 틀렸어요';
+        hint.classList.add('error');
+        document.querySelector('.lock-inner').classList.add('shake');
+        input.value = '';
+        setTimeout(() => document.querySelector('.lock-inner').classList.remove('shake'), 300);
+      }
+    }
+  });
+}
+
+showLockIfNeeded();
 </script>
 </body>
 </html>
