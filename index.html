@@ -27,16 +27,21 @@
   .screen { position: absolute; top: 0; left: 0; width: 100%; min-height: 100vh; background: var(--bg);
     transition: transform 0.3s cubic-bezier(0.22,1,0.36,1); padding: max(26px, env(safe-area-inset-top)) 20px 60px; }
   #home { transform: translateX(0); z-index: 1; }
-  #detail, #manage { transform: translateX(100%); z-index: 2; }
+  #detail, #manage, #insights { transform: translateX(100%); z-index: 2; }
   .app.open-detail #home { transform: translateX(-12%); filter: brightness(0.94); }
   .app.open-detail #detail { transform: translateX(0); }
   .app.open-manage #home { transform: translateX(-12%); filter: brightness(0.94); }
   .app.open-manage #manage { transform: translateX(0); }
+  .app.open-insights #home { transform: translateX(-12%); filter: brightness(0.94); }
+  .app.open-insights #insights { transform: translateX(0); }
 
   .home-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
   .home-date { font-size: 13px; color: var(--text-faint); font-weight: 600; margin-bottom: 6px; }
   .home-title { font-family: var(--font-serif); font-size: 27px; font-weight: 600; margin-bottom: 8px; }
   .manage-link { font-size: 13px; color: var(--accent); font-weight: 700; cursor: pointer; padding: 4px 0; }
+  .top-links { display: flex; align-items: center; gap: 6px; }
+  .link-sep { color: var(--text-faint); font-size: 12px; }
+  .nudge-line { font-size: 13px; color: var(--text-dim); margin: -14px 0 20px; display: none; }
   .home-sub { font-size: 15px; color: var(--text-dim); margin-bottom: 24px; }
   .home-sub b { color: var(--accent); font-weight: 800; }
 
@@ -56,6 +61,7 @@
   .status { font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); font-weight: 700; }
   .chev { color: var(--text-faint); font-size: 15px; margin-left: 2px; }
   .empty-note { color: var(--text-faint); font-size: 13px; padding: 6px 2px 10px; }
+  .insight-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; font-size: 14px; color: var(--text); line-height: 1.5; }
 
   .reset-link { display: block; text-align: center; margin-top: 26px; font-size: 12px; color: var(--text-faint); text-decoration: underline; cursor: pointer; }
 
@@ -195,14 +201,27 @@
         <div class="home-date" id="home-date"></div>
         <div class="home-title">시간 원장</div>
       </div>
-      <div class="manage-link" id="manage-link">루틴 관리</div>
+      <div class="top-links">
+        <span id="insights-link" class="manage-link">인사이트</span>
+        <span class="link-sep">·</span>
+        <span id="manage-link" class="manage-link">루틴 관리</span>
+      </div>
     </div>
     <div class="home-sub">오늘 <b id="done-count">0</b>/<span id="total-count">0</span>개 기록함</div>
     <div class="week-highlight" id="week-highlight"></div>
+    <div class="nudge-line" id="nudge-line"></div>
     <div id="home-lists"></div>
     <button class="compile-all-btn" id="compile-all-btn">🗂 전체 루틴 정리해서 메모 만들기</button>
     <div id="global-memo-list"></div>
     <div class="reset-link" id="reset-btn">모든 기록 초기화</div>
+  </div>
+
+  <div class="screen" id="insights">
+    <div class="detail-header">
+      <div class="back-btn" id="insights-back-btn">‹</div>
+      <div class="detail-title">인사이트</div>
+    </div>
+    <div id="insights-body"></div>
   </div>
 
   <div class="screen" id="detail">
@@ -231,6 +250,11 @@
       <div class="lbl">옵시디언 볼트로 내보내기</div>
       <button class="backup-btn" id="obsidian-export-btn" style="width:100%;">📦 볼트용 ZIP 다운로드</button>
       <div class="backup-note">루틴별 폴더에 날짜별 .md 파일 + routines.json이 담긴 zip이에요. 옵시디언 볼트에 압축 풀어 넣고, generate_dashboard.py를 실행하면 장기 대시보드가 만들어져요.</div>
+    </div>
+    <div class="backup-box">
+      <div class="lbl">월간 요약 카드</div>
+      <button class="backup-btn" id="month-card-btn" style="width:100%;">🖼️ 이번 달 요약 카드 만들기</button>
+      <div class="backup-note">이번 달 기록을 이미지 한 장으로 만들어서 저장해요. 카카오톡 등으로 공유하거나, 그냥 스스로 돌아보는 용도로 쓰기 좋아요.</div>
     </div>
     <div class="backup-box">
       <div id="ai-box"></div>
@@ -387,6 +411,98 @@ function computeWeeklyHighlight() {
   return `이번 주 가장 꾸준했던 루틴은 ${best.name}예요 (7일 중 ${bestCount}일)`;
 }
 
+/* ===== 실천 패턴 기반 넛지 (시간대 데이터 없이, 과거 실천율 기반) ===== */
+function computeNudge() {
+  const now = new Date();
+  if (now.getHours() < 12) return null;
+  const incomplete = state.routines.filter(r => {
+    const t = todayEntry(r);
+    return !t || t.skipped;
+  });
+  if (incomplete.length === 0) return null;
+  let best = null, bestRate = 0;
+  incomplete.forEach(r => {
+    const sessions = state.data[r.id].sessions.filter(s => !s.skipped);
+    if (sessions.length < 5) return;
+    const dates = sessions.map(s => s.date).sort();
+    const start = new Date(dates[0]);
+    const daysElapsed = Math.max(1, Math.round((now - start) / 86400000) + 1);
+    const rate = sessions.length / daysElapsed;
+    if (rate > bestRate) { bestRate = rate; best = r; }
+  });
+  if (!best || bestRate < 0.5) return null;
+  return `평소 꾸준히 하시던 ${best.name}, 오늘은 아직이에요`;
+}
+
+/* ===== 루틴 간 상관관계 인사이트 ===== */
+function getPositiveDates(r) {
+  return new Set(state.data[r.id].sessions.filter(s => !s.skipped).map(s => s.date));
+}
+
+function computeCorrelations() {
+  const routines = state.routines;
+  if (routines.length < 2) return [];
+  const dateSets = {};
+  let minDate = null;
+  routines.forEach(r => {
+    const set = getPositiveDates(r);
+    dateSets[r.id] = set;
+    set.forEach(d => { if (!minDate || d < minDate) minDate = d; });
+  });
+  if (!minDate) return [];
+  const start = new Date(minDate);
+  const today = new Date();
+  const totalDays = Math.max(1, Math.round((today - start) / 86400000) + 1);
+  if (totalDays < 14) return [];
+
+  const insights = [];
+  for (let i = 0; i < routines.length; i++) {
+    for (let j = 0; j < routines.length; j++) {
+      if (i === j) continue;
+      const A = routines[i], B = routines[j];
+      const setA = dateSets[A.id], setB = dateSets[B.id];
+      const countA = setA.size;
+      if (countA < 5) continue;
+      let countAB = 0;
+      setA.forEach(d => { if (setB.has(d)) countAB++; });
+      const countB = setB.size;
+      const baselineB = countB / totalDays;
+      if (baselineB <= 0) continue;
+      const conditional = countAB / countA;
+      const lift = conditional / baselineB;
+      if (lift >= 1.3 || lift <= 0.7) {
+        const pct = Math.round(Math.abs(lift - 1) * 100);
+        const dir = lift >= 1.3 ? '높아요' : '낮아요';
+        insights.push({
+          text: `${A.name} 실천한 날은 ${B.name} 실천율이 ${pct}% 더 ${dir}`,
+          score: Math.abs(lift - 1)
+        });
+      }
+    }
+  }
+  insights.sort((a, b) => b.score - a.score);
+  return insights.slice(0, 6);
+}
+
+function openInsights() {
+  renderInsights();
+  document.getElementById('app').classList.add('open-insights');
+}
+function closeInsights() { document.getElementById('app').classList.remove('open-insights'); }
+
+function renderInsights() {
+  const body = document.getElementById('insights-body');
+  const insights = computeCorrelations();
+  if (insights.length === 0) {
+    body.innerHTML = `<div class="empty-note">아직 데이터가 부족해요. 2주 이상, 각 루틴 5회 이상 기록이 쌓이면 루틴 간 패턴이 여기 나타나요.</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="section-lbl">루틴 간 패턴</div>` +
+    insights.map(ins => `<div class="insight-card">${ins.text}</div>`).join('');
+}
+document.getElementById('insights-link').addEventListener('click', openInsights);
+document.getElementById('insights-back-btn').addEventListener('click', closeInsights);
+
 function renderHome() {
   document.getElementById('home-date').textContent = new Date().toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'long' });
   const routines = state.routines;
@@ -403,6 +519,10 @@ function renderHome() {
   const highlight = computeWeeklyHighlight();
   const hEl = document.getElementById('week-highlight');
   if (hEl) { hEl.textContent = highlight || ''; hEl.style.display = highlight ? 'block' : 'none'; }
+
+  const nudge = computeNudge();
+  const nEl = document.getElementById('nudge-line');
+  if (nEl) { nEl.textContent = nudge || ''; nEl.style.display = nudge ? 'block' : 'none'; }
 
   const rowHtml = (r) => {
     const t = todayEntry(r);
@@ -946,7 +1066,9 @@ function makeZip(files) {
 
 function sanitizeFolderName(name) {
   return name.replace(/[\/\\:*?"<>|]/g, '_');
-}function buildObsidianExportFiles() {
+}
+
+function buildObsidianExportFiles() {
   const files = [];
   state.routines.forEach(r => {
     const folder = sanitizeFolderName(r.name);
@@ -980,12 +1102,57 @@ document.getElementById('manage-link').addEventListener('click', openManage);
 document.getElementById('manage-back-btn').addEventListener('click', closeManage);
 document.getElementById('compile-all-btn').addEventListener('click', compileAllMemo);
 
-document.getElementById('export-btn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+/* ===== 백업 암호화 (Web Crypto API, 외부 라이브러리 없음) ===== */
+async function deriveAesKey(passphrase, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+function bufToB64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function b64ToBuf(b64) { return Uint8Array.from(atob(b64), c => c.charCodeAt(0)); }
+
+async function encryptBackup(passphrase, plainText) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAesKey(passphrase, salt);
+  const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plainText));
+  return { encrypted: true, salt: bufToB64(salt), iv: bufToB64(iv), data: bufToB64(cipherBuf) };
+}
+async function decryptBackup(passphrase, obj) {
+  const salt = b64ToBuf(obj.salt), iv = b64ToBuf(obj.iv), data = b64ToBuf(obj.data);
+  const key = await deriveAesKey(passphrase, salt);
+  const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+  return new TextDecoder().decode(plainBuf);
+}
+
+document.getElementById('export-btn').addEventListener('click', async () => {
+  const pass = prompt('백업 파일을 암호화할까요?\n비밀번호를 입력하면 암호화됩니다 (비워두고 확인하면 암호화 없이 저장)');
+  const plainText = JSON.stringify(state, null, 2);
+  let content, filename;
+  if (pass && pass.trim()) {
+    try {
+      const enc = await encryptBackup(pass.trim(), plainText);
+      content = JSON.stringify(enc);
+      filename = `daily-lap-backup-encrypted-${todayStr()}.json`;
+    } catch (e) {
+      alert('암호화에 실패했어요: ' + e.message);
+      return;
+    }
+  } else {
+    content = plainText;
+    filename = `daily-lap-backup-${todayStr()}.json`;
+  }
+  const blob = new Blob([content], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `daily-lap-backup-${todayStr()}.json`;
+  a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 });
@@ -996,9 +1163,20 @@ document.getElementById('import-file').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
-      const parsed = JSON.parse(reader.result);
+      let parsed = JSON.parse(reader.result);
+      if (parsed.encrypted) {
+        const pass = prompt('이 백업 파일은 암호화되어 있어요. 비밀번호를 입력하세요');
+        if (!pass) { return; }
+        try {
+          const decryptedText = await decryptBackup(pass, parsed);
+          parsed = JSON.parse(decryptedText);
+        } catch (e2) {
+          alert('비밀번호가 틀렸거나 파일이 손상됐어요');
+          return;
+        }
+      }
       if (!parsed.routines || !parsed.data) throw new Error('형식이 올바르지 않아요');
       if (confirm('현재 기록을 덮어쓰고 백업 파일로 복원할까요? 되돌릴 수 없어요.')) {
         state = parsed;
@@ -1026,6 +1204,100 @@ document.getElementById('obsidian-export-btn').addEventListener('click', () => {
   a.download = `daily-lap-vault-${todayStr()}.zip`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+});
+
+/* ===== 월간 요약 카드 (canvas -> PNG, 외부 라이브러리 없음) ===== */
+function generateMonthCard() {
+  const now = new Date();
+  const cy = now.getFullYear(), cm = now.getMonth() + 1;
+  const monthPrefix = `${cy}-${String(cm).padStart(2,'0')}`;
+
+  const rows = [];
+  state.routines.forEach(r => {
+    const sessions = state.data[r.id].sessions.filter(s => !s.skipped && s.date.startsWith(monthPrefix));
+    if (sessions.length === 0) return;
+    const total = sessions.reduce((a,s) => a + (s.amount||0), 0);
+    const label = r.unit === '분'
+      ? (total >= 60 ? `${sessions.length}회 · ${(total/60).toFixed(1)}시간` : `${sessions.length}회 · ${total}분`)
+      : `${sessions.length}일`;
+    rows.push({ name: r.name, label });
+  });
+
+  const W = 800, H = Math.max(420, 260 + Math.max(rows.length,1) * 64 + 100);
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // 배경
+  ctx.fillStyle = '#faf7f0';
+  ctx.fillRect(0, 0, W, H);
+  // 상단 액센트 바
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0, '#b5652f');
+  grad.addColorStop(1, '#d99a5c');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, 10);
+
+  // 카드 테두리
+  ctx.strokeStyle = '#e8e0d0';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(30, 30, W - 60, H - 60);
+
+  // 헤더
+  ctx.fillStyle = '#b5652f';
+  ctx.font = '700 15px -apple-system, sans-serif';
+  ctx.fillText('DAILY LAP', 64, 90);
+  ctx.fillStyle = '#2a2620';
+  ctx.font = '600 34px "Noto Serif KR", Georgia, serif';
+  ctx.fillText(`${cy}년 ${cm}월의 기록`, 64, 140);
+
+  // 구분선
+  ctx.strokeStyle = '#e8e0d0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(64, 170);
+  ctx.lineTo(W - 64, 170);
+  ctx.stroke();
+
+  // 루틴별 행
+  let y = 230;
+  if (rows.length === 0) {
+    ctx.fillStyle = '#b0a690';
+    ctx.font = '400 18px -apple-system, sans-serif';
+    ctx.fillText('이번 달 기록이 아직 없어요', 64, y);
+  } else {
+    rows.forEach(row => {
+      ctx.fillStyle = '#2a2620';
+      ctx.font = '700 24px -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(row.name, 64, y);
+      ctx.fillStyle = '#756c5c';
+      ctx.font = '400 20px "SF Mono", Consolas, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(row.label, W - 64, y);
+      ctx.textAlign = 'left';
+      y += 64;
+    });
+  }
+
+  // 푸터
+  ctx.fillStyle = '#b0a690';
+  ctx.font = '400 13px "SF Mono", Consolas, monospace';
+  ctx.fillText(`GENERATED ${todayStr()}`, 64, H - 50);
+
+  return canvas;
+}
+
+document.getElementById('month-card-btn').addEventListener('click', () => {
+  const canvas = generateMonthCard();
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `daily-lap-${todayStr().slice(0,7)}.png`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 'image/png');
 });
 document.getElementById('reset-btn').addEventListener('click', () => {
   if (confirm('모든 기록을 초기화할까요? 되돌릴 수 없어요.')) {
@@ -1089,9 +1361,18 @@ function renderPinBox() {
   }
 }
 
+function handleShortcutOpen() {
+  const params = new URLSearchParams(location.search);
+  const openId = params.get('open');
+  if (openId && state.routines.find(r => r.id === openId)) {
+    openDetail(openId);
+  }
+}
+
 function proceedInit() {
   loadState();
   renderHome();
+  handleShortcutOpen();
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
 }
 
