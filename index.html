@@ -49,6 +49,9 @@
   .badge { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; flex-shrink: 0; }
   .badge.done { background: var(--up); color: #fff; }
   .badge.pending { background: transparent; border: 1.5px solid var(--border); color: var(--text-faint); }
+  .badge.frozen { background: #4c8cb5; color: #fff; }
+  .badge.skipped { background: rgba(181,69,58,0.12); color: var(--down); border: 1.5px solid rgba(181,69,58,0.25); }
+  .badge[data-quick] { cursor: pointer; }
   .name { font-size: 16px; font-weight: 700; flex-grow: 1; }
   .status { font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); font-weight: 700; }
   .chev { color: var(--text-faint); font-size: 15px; margin-left: 2px; }
@@ -87,6 +90,10 @@
   @keyframes shake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-4px);} 75%{transform:translateX(4px);} }
   .form-hint { font-size: 11px; color: var(--down); margin-top: 6px; text-align: center; display: none; font-weight: 600; }
   .form-hint.show { display: block; }
+
+  .alt-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .alt-btn { flex: 1; text-align: center; font-size: 12px; color: var(--text-dim); background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 10px; cursor: pointer; }
+  .alt-btn:active { opacity: 0.8; }
 
   .compile-btn { background: var(--surface); border: 1.5px solid var(--accent); color: var(--accent); border-radius: 10px; padding: 13px; font-size: 13px; font-weight: 800; cursor: pointer; width: 100%; margin-bottom: 8px; text-align: center; }
   .compile-btn:active { opacity: 0.8; }
@@ -237,6 +244,7 @@ function loadState() {
   state.routines.forEach(r => {
     if (!state.data[r.id]) state.data[r.id] = { sessions: [], lastCompiled: null, memos: [] };
     if (!state.data[r.id].memos) state.data[r.id].memos = [];
+    if (state.data[r.id].freezes === undefined) state.data[r.id].freezes = 3;
   });
 
   // 시간(hour) -> 분(minute) 단위 마이그레이션 (기존 데이터 보존)
@@ -258,8 +266,9 @@ function todayEntry(r) {
 
 function computeStreak(r) {
   let streak = 0, d = new Date();
-  while (state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10))) {
-    streak++; d.setDate(d.getDate()-1);
+  while (true) {
+    const e = state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10));
+    if (e && !e.skipped) { streak++; d.setDate(d.getDate()-1); } else break;
   }
   return streak;
 }
@@ -279,16 +288,27 @@ function renderHome() {
   document.getElementById('home-date').textContent = new Date().toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'long' });
   const routines = state.routines;
   const doneList = [], pendingList = [];
-  routines.forEach(r => { (todayEntry(r) ? doneList : pendingList).push(r); });
+  routines.forEach(r => {
+    const t = todayEntry(r);
+    const positive = t && !t.skipped;
+    (positive ? doneList : pendingList).push(r);
+  });
 
   document.getElementById('done-count').textContent = doneList.length;
   document.getElementById('total-count').textContent = routines.length;
 
   const rowHtml = (r) => {
     const t = todayEntry(r);
-    const status = t ? (r.unit === '분' ? `${t.amount}분` : '완료') : '미기록';
-    return `<div class="row ${t?'done':''}" data-id="${r.id}">
-      <div class="badge ${t?'done':'pending'}">${t?'✓':'·'}</div>
+    let status = '미기록', badgeClass = 'pending', badgeChar = '·';
+    if (t) {
+      if (t.skipped) { status = '스킵'; badgeClass = 'skipped'; badgeChar = '－'; }
+      else if (t.frozen) { status = '프리즈'; badgeClass = 'frozen'; badgeChar = '❄'; }
+      else { status = (r.unit === '분' ? `${t.amount}분` : '완료'); badgeClass = 'done'; badgeChar = '✓'; }
+    }
+    const quickAttr = (r.unit === '일' && !t) ? ` data-quick="${r.id}"` : '';
+    const rowDoneClass = (badgeClass === 'done' || badgeClass === 'frozen') ? 'done' : '';
+    return `<div class="row ${rowDoneClass}" data-id="${r.id}">
+      <div class="badge ${badgeClass}"${quickAttr}>${badgeChar}</div>
       <div class="name">${r.name}</div>
       <div class="status">${status}</div>
       <div class="chev">›</div>
@@ -304,6 +324,16 @@ function renderHome() {
     html += pendingList.length ? pendingList.map(rowHtml).join('') : `<div class="empty-note">모두 완료했어요 🎉</div>`;
   }
   document.getElementById('home-lists').innerHTML = html;
+
+  document.querySelectorAll('#home-lists [data-quick]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = el.getAttribute('data-quick');
+      state.data[id].sessions.push({ date: todayStr(), amount: 1, note: '' });
+      saveState();
+      renderHome();
+    });
+  });
   document.querySelectorAll('#home-lists .row').forEach(el => el.addEventListener('click', () => openDetail(el.getAttribute('data-id'))));
 
   const gm = state.globalMemos || [];
@@ -343,22 +373,32 @@ function renderDetail() {
 
   let html = `<div class="today-card"><div class="lbl">오늘</div>`;
   if (t && !editingToday) {
+    let mainLabel, subLabel;
+    if (t.skipped) { mainLabel = '스킵'; subLabel = t.reason ? escapeHtml(t.reason) : '이유 없음'; }
+    else if (t.frozen) { mainLabel = '❄️ 프리즈 사용'; subLabel = '오늘은 쉬어가요 (스트릭 유지)'; }
+    else { mainLabel = r.unit === '분' ? t.amount + '분' : '완료'; subLabel = t.note ? escapeHtml(t.note) : '메모 없음'; }
     html += `<div class="today-done-view">
-        <div class="info"><div class="amt">${r.unit === '분' ? t.amount + '분' : '완료'}</div>
-        <div class="note">${t.note ? escapeHtml(t.note) : '메모 없음'}</div></div>
+        <div class="info"><div class="amt">${mainLabel}</div>
+        <div class="note">${subLabel}</div></div>
         <div class="edit-link" id="edit-today">수정</div>
       </div>`;
   } else {
     if (r.unit === '분') {
       html += `<div class="form-row">
-          <input type="number" step="1" min="0" inputmode="numeric" id="amount-input" placeholder="분 (예: 30)" value="${t ? t.amount : ''}">
+          <input type="number" step="1" min="0" inputmode="numeric" id="amount-input" placeholder="분 (예: 30)" value="${t && !t.skipped && !t.frozen ? t.amount : ''}">
           <input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}">
         </div>`;
     } else {
-      html += `<div class="check-toggle"><div class="check-btn ${t?'active':''}" id="check-btn">${t ? '✓ 완료함' : '오늘 완료'}</div></div>
+      html += `<div class="check-toggle"><div class="check-btn ${t && !t.skipped && !t.frozen ?'active':''}" id="check-btn">${t && !t.skipped && !t.frozen ? '✓ 완료함' : '오늘 완료'}</div></div>
         <div class="form-row"><input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}"></div>`;
     }
     html += `<button class="save-btn" id="save-btn">저장</button><div class="form-hint" id="form-hint">${r.unit==='분' ? '분을 0보다 크게 입력해주세요' : '먼저 완료 체크를 눌러주세요'}</div>`;
+
+    const freezes = state.data[r.id].freezes ?? 3;
+    html += `<div class="alt-actions">`;
+    if (freezes > 0) html += `<div class="alt-btn" id="freeze-btn">❄️ 프리즈 (${freezes}개 남음)</div>`;
+    html += `<div class="alt-btn" id="skip-btn">오늘은 못했어요</div>`;
+    html += `</div>`;
   }
   html += `</div>`;
 
@@ -375,11 +415,16 @@ function renderDetail() {
   }
 
   html += `<div class="section-lbl">전체 기록 (${sessions.length}건)</div>`;
-  html += sessions.length ? sessions.map(s => `
-    <div class="log-item">
-      <div><div class="log-date">${s.date}</div><div class="log-line">${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' · ' + escapeHtml(s.note) : ''}</div></div>
+  html += sessions.length ? sessions.map(s => {
+    let line;
+    if (s.skipped) line = `스킵${s.reason ? ' — ' + escapeHtml(s.reason) : ''}`;
+    else if (s.frozen) line = `❄️ 프리즈 사용`;
+    else line = `${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' · ' + escapeHtml(s.note) : ''}`;
+    return `<div class="log-item">
+      <div><div class="log-date">${s.date}</div><div class="log-line">${line}</div></div>
       <div class="log-del" data-del="${s.date}">삭제</div>
-    </div>`).join('') : `<div class="empty-note">아직 기록이 없어요.</div>`;
+    </div>`;
+  }).join('') : `<div class="empty-note">아직 기록이 없어요.</div>`;
 
   document.getElementById('detail-body').innerHTML = html;
   attachDetailEvents(r);
@@ -389,7 +434,7 @@ function attachDetailEvents(r) {
   const editLink = document.getElementById('edit-today');
   if (editLink) editLink.addEventListener('click', () => { editingToday = true; renderDetail(); });
 
-  let checkActive = !!todayEntry(r);
+  let checkActive = !!(todayEntry(r) && !todayEntry(r).skipped && !todayEntry(r).frozen);
   const checkBtn = document.getElementById('check-btn');
   if (checkBtn) checkBtn.addEventListener('click', () => {
     checkActive = !checkActive;
@@ -433,6 +478,30 @@ function attachDetailEvents(r) {
     saveState(); renderDetail();
   }));
 
+  const freezeBtn = document.getElementById('freeze-btn');
+  if (freezeBtn) freezeBtn.addEventListener('click', () => {
+    const freezes = state.data[r.id].freezes ?? 3;
+    if (freezes <= 0) return;
+    state.data[r.id].freezes = freezes - 1;
+    const today = todayStr();
+    const list = state.data[r.id].sessions;
+    const idx = list.findIndex(s => s.date === today);
+    const entry = { date: today, amount: 0, frozen: true };
+    if (idx >= 0) list[idx] = entry; else list.push(entry);
+    saveState(); editingToday = false; renderDetail();
+  });
+
+  const skipBtn = document.getElementById('skip-btn');
+  if (skipBtn) skipBtn.addEventListener('click', () => {
+    const reason = (prompt('오늘 못한 이유를 간단히 남겨주세요 (선택)') || '').trim();
+    const today = todayStr();
+    const list = state.data[r.id].sessions;
+    const idx = list.findIndex(s => s.date === today);
+    const entry = { date: today, amount: 0, skipped: true, reason };
+    if (idx >= 0) list[idx] = entry; else list.push(entry);
+    saveState(); editingToday = false; renderDetail();
+  });
+
   const compileBtn = document.getElementById('compile-btn');
   if (compileBtn) compileBtn.addEventListener('click', () => compileMemo(r));
 
@@ -443,6 +512,12 @@ function attachDetailEvents(r) {
   }));
 }
 
+function formatLine(s, r) {
+  if (s.skipped) return `스킵${s.reason ? ' — ' + s.reason : ''}`;
+  if (s.frozen) return `프리즈 사용 (쉼)`;
+  return `${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' — ' + s.note : ''}`;
+}
+
 function compileMemo(r) {
   const since = state.data[r.id].lastCompiled;
   const sessions = state.data[r.id].sessions.filter(s => !since || s.date > since).sort((a,b) => a.date.localeCompare(b.date));
@@ -450,14 +525,15 @@ function compileMemo(r) {
     openModal(`${r.name} 정리`, '새로 추가된 기록이 없어요', '마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.');
     return;
   }
-  const lines = sessions.map(s => `- ${s.date} (${fmtDate(s.date)}): ${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' — ' + s.note : ''}`);
-  const totalAmount = sessions.reduce((a,s) => a + s.amount, 0);
+  const lines = sessions.map(s => `- ${s.date} (${fmtDate(s.date)}): ${formatLine(s, r)}`);
+  const totalAmount = sessions.reduce((a,s) => a + (s.amount||0), 0);
+  const skipCount = sessions.filter(s => s.skipped).length;
   const from = sessions[0].date, to = sessions[sessions.length-1].date;
   const streak = computeStreak(r);
   const last7 = computeLast7(r);
   const allTime = computeAllTimeTotal(r);
   const text = `[${r.name} 기록 정리 — ${from} ~ ${to}]\n\n` +
-    `📊 최근 7일 중 ${last7}일 실천 · 현재 연속 ${streak}일 · 전체 누적 ${allTime}${r.unit}\n\n` +
+    `📊 최근 7일 중 ${last7}일 실천 · 현재 연속 ${streak}일 · 전체 누적 ${allTime}${r.unit}${skipCount ? ` · 이번 구간 스킵 ${skipCount}회` : ''}\n\n` +
     `${lines.join('\n')}\n\n이번 구간 ${sessions.length}회, ${totalAmount}${r.unit}\n\n---\n위 기록을 보고 패턴을 진단하고, 앞으로 어떻게 하면 좋을지 방향을 제안해줘.`;
   state.data[r.id].memos.push({ from, to, text });
   state.data[r.id].lastCompiled = to;
@@ -472,8 +548,8 @@ function compileAllMemo() {
     const since = state.data[r.id].lastCompiled;
     const sessions = state.data[r.id].sessions.filter(s => !since || s.date > since).sort((a,b) => a.date.localeCompare(b.date));
     if (sessions.length === 0) return;
-    const lines = sessions.map(s => `  - ${s.date} (${fmtDate(s.date)}): ${r.unit === '분' ? s.amount + '분' : '완료'}${s.note ? ' — ' + s.note : ''}`);
-    const totalAmount = sessions.reduce((a,s) => a + s.amount, 0);
+    const lines = sessions.map(s => `  - ${s.date} (${fmtDate(s.date)}): ${formatLine(s, r)}`);
+    const totalAmount = sessions.reduce((a,s) => a + (s.amount||0), 0);
     const streak = computeStreak(r), last7 = computeLast7(r), allTime = computeAllTimeTotal(r);
     sections.push(`### ${r.name}\n최근 7일 중 ${last7}일 실천 · 연속 ${streak}일 · 전체 누적 ${allTime}${r.unit}\n${lines.join('\n')}\n(이번 구간 ${sessions.length}회, ${totalAmount}${r.unit})`);
     state.data[r.id].lastCompiled = sessions[sessions.length-1].date;

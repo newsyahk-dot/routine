@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daily-lap-v8';
+const CACHE_NAME = 'daily-lap-v9';
 const ASSETS = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', (e) => {
