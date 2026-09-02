@@ -169,6 +169,14 @@
   .modal-actions button { flex: 1; border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; }
   .modal-copy { background: var(--accent); color: #fff; }
   .modal-close { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border) !important; }
+
+  .ai-analyze-btn { background: var(--text); color: var(--bg); border: none; border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 800; cursor: pointer; width: 100%; margin-top: 10px; display: none; }
+  .ai-analyze-btn:disabled { opacity: 0.6; }
+  .ai-result { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: none; }
+  .ai-label { font-size: 11px; font-weight: 800; color: var(--accent); margin-bottom: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .ai-text { font-size: 13px; line-height: 1.65; color: var(--text); white-space: pre-wrap; }
+  .ai-loading { font-size: 13px; color: var(--text-dim); }
+  .ai-error { font-size: 13px; color: var(--down); }
 </style>
 </head>
 <body>
@@ -225,10 +233,10 @@
       <div class="backup-note">루틴별 폴더에 날짜별 .md 파일 + routines.json이 담긴 zip이에요. 옵시디언 볼트에 압축 풀어 넣고, generate_dashboard.py를 실행하면 장기 대시보드가 만들어져요.</div>
     </div>
     <div class="backup-box">
-      <div id="pin-box"></div>
+      <div id="ai-box"></div>
     </div>
     <div class="backup-box">
-      <div id="sync-box"></div>
+      <div id="pin-box"></div>
     </div>
     <div id="manage-list"></div>
     <div class="add-form">
@@ -252,6 +260,8 @@
       <button class="modal-close" id="modal-close">닫기</button>
       <button class="modal-copy" id="modal-copy">복사하기</button>
     </div>
+    <button class="ai-analyze-btn" id="ai-analyze-btn">🤖 AI에게 분석 요청</button>
+    <div class="ai-result" id="ai-result"></div>
   </div>
 </div>
 
@@ -621,7 +631,7 @@ function compileMemo(r) {
   const since = state.data[r.id].lastCompiled;
   const sessions = state.data[r.id].sessions.filter(s => !since || s.date > since).sort((a,b) => a.date.localeCompare(b.date));
   if (sessions.length === 0) {
-    openModal(`${r.name} 정리`, '새로 추가된 기록이 없어요', '마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.');
+    openModal(`${r.name} 정리`, '새로 추가된 기록이 없어요', '마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.', false);
     return;
   }
   const lines = sessions.map(s => `- ${s.date} (${fmtDate(s.date)}): ${formatLine(s, r)}`);
@@ -655,7 +665,7 @@ function compileAllMemo() {
   });
 
   if (sections.length === 0) {
-    openModal('전체 루틴 정리', '새로 추가된 기록이 없어요', '모든 루틴에서 마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.');
+    openModal('전체 루틴 정리', '새로 추가된 기록이 없어요', '모든 루틴에서 마지막 정리 이후 새 기록이 없습니다. 오늘 기록부터 먼저 남겨보세요.', false);
     return;
   }
 
@@ -679,7 +689,7 @@ function openManage() {
 function closeManage() { document.getElementById('app').classList.remove('open-manage'); renderHome(); }
 
 function renderManage() {
-  renderSyncBox();
+  renderAiBox();
   renderPinBox();
   const list = document.getElementById('manage-list');
   list.innerHTML = state.routines.map(r => `
@@ -729,14 +739,114 @@ document.getElementById('add-routine-btn').addEventListener('click', () => {
   renderManage();
 });
 
-function openModal(title, sub, text) {
+/* ===== AI 분석 (본인 Anthropic API 키, 로컬 저장) ===== */
+const AI_KEY_STORAGE = 'daily-lap-ai-key';
+function getAiKey() { return localStorage.getItem(AI_KEY_STORAGE) || ''; }
+function setAiKey(k) { localStorage.setItem(AI_KEY_STORAGE, k); }
+function clearAiKey() { localStorage.removeItem(AI_KEY_STORAGE); }
+
+function renderAiBox() {
+  const box = document.getElementById('ai-box');
+  if (!box) return;
+  const key = getAiKey();
+  if (!key) {
+    box.innerHTML = `
+      <div class="lbl">AI 분석 (Claude API)</div>
+      <div class="backup-note">본인 Anthropic API 키를 넣어두면, 정리 메모를 만들 때 그 자리에서 바로 AI 분석을 받을 수 있어요.</div>
+      <div class="form-row" style="margin-top:8px;">
+        <input type="password" id="ai-key-input" placeholder="sk-ant-...">
+      </div>
+      <button class="backup-btn" id="ai-save-key-btn" style="width:100%;">API 키 저장</button>
+      <div class="backup-note">⚠️ 이 브라우저에만 저장되고 서버로 전송되지 않아요. 사용한 만큼 본인 Anthropic 계정에 요금이 청구돼요.
+        <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent); font-weight:700;">→ API 키 발급 페이지 열기</a>
+      </div>`;
+    document.getElementById('ai-save-key-btn').addEventListener('click', () => {
+      const val = document.getElementById('ai-key-input').value.trim();
+      if (!val) return;
+      setAiKey(val);
+      renderAiBox();
+    });
+  } else {
+    box.innerHTML = `
+      <div class="lbl">AI 분석 (Claude API)</div>
+      <div class="backup-note">✓ API 키 저장됨. 정리 메모 화면에 "AI에게 분석 요청" 버튼이 나타나요.</div>
+      <div class="backup-row" style="margin-top:8px;">
+        <button class="backup-btn" id="ai-change-key-btn">키 변경</button>
+        <button class="backup-btn" id="ai-remove-key-btn">키 삭제</button>
+      </div>`;
+    document.getElementById('ai-change-key-btn').addEventListener('click', () => {
+      const val = prompt('새 API 키를 입력하세요');
+      if (val && val.trim()) { setAiKey(val.trim()); renderAiBox(); }
+    });
+    document.getElementById('ai-remove-key-btn').addEventListener('click', () => {
+      if (confirm('저장된 API 키를 지울까요?')) { clearAiKey(); renderAiBox(); }
+    });
+  }
+}
+
+async function callClaudeAPI(apiKey, promptText) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: promptText }]
+    })
+  });
+  if (!res.ok) {
+    let msg = `요청 실패 (${res.status})`;
+    try { const errBody = await res.json(); if (errBody?.error?.message) msg = errBody.error.message; } catch(e) {}
+    if (res.status === 401) msg = 'API 키가 유효하지 않아요';
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  return data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+}
+
+function openModal(title, sub, text, analyzable = true) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-sub').textContent = sub;
   document.getElementById('modal-text').value = text;
   document.getElementById('modal-backdrop').classList.add('show');
+
+  const aiResult = document.getElementById('ai-result');
+  aiResult.style.display = 'none';
+  aiResult.innerHTML = '';
+  const aiBtn = document.getElementById('ai-analyze-btn');
+  if (analyzable && getAiKey()) {
+    aiBtn.style.display = 'block';
+    aiBtn.disabled = false;
+    aiBtn.textContent = '🤖 AI에게 분석 요청';
+  } else {
+    aiBtn.style.display = 'none';
+  }
 }
 function closeModal() { document.getElementById('modal-backdrop').classList.remove('show'); }
 document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('ai-analyze-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('ai-analyze-btn');
+  const resultEl = document.getElementById('ai-result');
+  const text = document.getElementById('modal-text').value;
+  btn.disabled = true;
+  btn.textContent = '분석 중...';
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<div class="ai-loading">AI가 기록을 살펴보고 있어요...</div>';
+  try {
+    const analysis = await callClaudeAPI(getAiKey(), text);
+    resultEl.innerHTML = `<div class="ai-label">AI 분석</div><div class="ai-text">${escapeHtml(analysis)}</div>`;
+  } catch (e) {
+    resultEl.innerHTML = `<div class="ai-error">분석 실패: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 다시 분석 요청';
+  }
+});
 document.getElementById('modal-copy').addEventListener('click', async () => {
   const text = document.getElementById('modal-text').value;
   try {
@@ -864,174 +974,6 @@ function sanitizeFolderName(name) {
   return files;
 }
 
-/* ===== GitHub Gist sync (no server, no dependencies) ===== */
-const GH_TOKEN_KEY = 'daily-lap-gh-token';
-const GH_GISTID_KEY = 'daily-lap-gh-gistid';
-const GH_LASTSYNC_KEY = 'daily-lap-gh-lastsync';
-const GH_FILENAME = 'daily-lap-backup.json';
-
-function ghGetToken() { return localStorage.getItem(GH_TOKEN_KEY) || ''; }
-function ghGetGistId() { return localStorage.getItem(GH_GISTID_KEY) || ''; }
-function ghGetLastSync() { return localStorage.getItem(GH_LASTSYNC_KEY) || ''; }
-
-async function ghRequest(url, options) {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    let msg = `요청 실패 (${res.status})`;
-    if (res.status === 401) msg = '토큰이 유효하지 않아요';
-    if (res.status === 404) msg = 'Gist를 찾을 수 없어요 (ID 확인)';
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-async function ghCreateGist(token) {
-  const data = await ghRequest('https://api.github.com/gists', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      description: 'Daily Lap backup (personal use)',
-      public: false,
-      files: { [GH_FILENAME]: { content: JSON.stringify(state, null, 2) } }
-    })
-  });
-  return data.id;
-}
-
-async function ghPushGist(token, gistId) {
-  await ghRequest(`https://api.github.com/gists/${gistId}`, {
-    method: 'PATCH',
-    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ files: { [GH_FILENAME]: { content: JSON.stringify(state, null, 2) } } })
-  });
-}
-
-async function ghPullGist(token, gistId) {
-  const data = await ghRequest(`https://api.github.com/gists/${gistId}`, {
-    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
-  });
-  const file = data.files && data.files[GH_FILENAME];
-  if (!file) throw new Error('백업 파일을 찾을 수 없어요');
-  return JSON.parse(file.content);
-}
-
-function setSyncStatus(msg, isError) {
-  const el = document.getElementById('gh-status');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = isError ? 'var(--down)' : 'var(--text-faint)';
-}
-
-function renderSyncBox() {
-  const box = document.getElementById('sync-box');
-  if (!box) return;
-  const token = ghGetToken();
-  const gistId = ghGetGistId();
-  const lastSync = ghGetLastSync();
-
-  if (!token) {
-    box.innerHTML = `
-      <div class="lbl">기기 간 동기화 (GitHub)</div>
-      <div class="backup-note">개인 액세스 토큰을 입력하면, 다른 기기(회사 PC 등)에서도 같은 기록을 불러올 수 있어요.</div>
-      <div class="form-row" style="margin-top:8px;">
-        <input type="password" id="gh-token-input" placeholder="ghp_...">
-      </div>
-      <button class="backup-btn" id="gh-save-token-btn" style="width:100%;">토큰 저장</button>
-      <div class="backup-note">⚠️ 반드시 <b>gist 권한만</b> 있는 토큰을 만들어 쓰세요 (저장소 접근 권한 X). 토큰은 이 브라우저에만 저장되고 서버로 전송되지 않아요.
-        <a href="https://github.com/settings/tokens/new?scopes=gist&description=DailyLap" target="_blank" style="color:var(--accent); font-weight:700;">→ gist 전용 토큰 발급 페이지 열기</a>
-      </div>`;
-    document.getElementById('gh-save-token-btn').addEventListener('click', () => {
-      const val = document.getElementById('gh-token-input').value.trim();
-      if (!val) return;
-      localStorage.setItem(GH_TOKEN_KEY, val);
-      renderSyncBox();
-    });
-    return;
-  }
-
-  if (!gistId) {
-    box.innerHTML = `
-      <div class="lbl">기기 간 동기화 (GitHub)</div>
-      <div class="backup-note">토큰 저장됨 ✓. 이 기기가 처음이면 새로 만들고, 다른 기기에서 이미 만들어뒀다면 그 Gist ID를 붙여넣으세요.</div>
-      <button class="backup-btn" id="gh-create-btn" style="width:100%; margin:8px 0;">🆕 새 Gist 만들고 지금 기록 백업</button>
-      <div class="form-row">
-        <input type="text" id="gh-gistid-input" placeholder="기존 Gist ID 붙여넣기">
-      </div>
-      <button class="backup-btn" id="gh-link-btn" style="width:100%;">🔗 이 Gist 연결하고 불러오기</button>
-      <div class="backup-note" id="gh-status"></div>
-      <div class="reset-link" id="gh-forget-token">토큰 잊기</div>`;
-    document.getElementById('gh-create-btn').addEventListener('click', async () => {
-      setSyncStatus('생성 중...', false);
-      try {
-        const id = await ghCreateGist(ghGetToken());
-        localStorage.setItem(GH_GISTID_KEY, id);
-        localStorage.setItem(GH_LASTSYNC_KEY, new Date().toISOString());
-        renderSyncBox();
-      } catch (e) { setSyncStatus(e.message, true); }
-    });
-    document.getElementById('gh-link-btn').addEventListener('click', async () => {
-      const id = document.getElementById('gh-gistid-input').value.trim();
-      if (!id) return;
-      setSyncStatus('불러오는 중...', false);
-      try {
-        const remote = await ghPullGist(ghGetToken(), id);
-        if (!remote.routines || !remote.data) throw new Error('올바른 백업 형식이 아니에요');
-        if (confirm('이 기기의 현재 기록을 GitHub의 기록으로 덮어쓸까요?')) {
-          state = remote;
-          if (!state.globalMemos) state.globalMemos = [];
-          saveState();
-          localStorage.setItem(GH_GISTID_KEY, id);
-          localStorage.setItem(GH_LASTSYNC_KEY, new Date().toISOString());
-          renderManage();
-        }
-      } catch (e) { setSyncStatus(e.message, true); }
-    });
-    document.getElementById('gh-forget-token').addEventListener('click', () => {
-      if (confirm('저장된 토큰을 지울까요?')) { localStorage.removeItem(GH_TOKEN_KEY); renderSyncBox(); }
-    });
-    return;
-  }
-
-  box.innerHTML = `
-    <div class="lbl">기기 간 동기화 (GitHub)</div>
-    <div class="backup-note">Gist ID: <span style="font-family:var(--font-mono); color:var(--accent);">${gistId}</span>${lastSync ? ' · 마지막 동기화 ' + new Date(lastSync).toLocaleString('ko-KR') : ''}</div>
-    <div class="backup-row" style="margin-top:8px;">
-      <button class="backup-btn" id="gh-push-btn">⬆️ 이 기기 → GitHub</button>
-      <button class="backup-btn" id="gh-pull-btn">⬇️ GitHub → 이 기기</button>
-    </div>
-    <div class="backup-note" id="gh-status"></div>
-    <div class="reset-link" id="gh-disconnect">연결 해제 (Gist는 안 지워짐)</div>`;
-  document.getElementById('gh-push-btn').addEventListener('click', async () => {
-    setSyncStatus('업로드 중...', false);
-    try {
-      await ghPushGist(ghGetToken(), gistId);
-      localStorage.setItem(GH_LASTSYNC_KEY, new Date().toISOString());
-      renderSyncBox();
-    } catch (e) { setSyncStatus(e.message, true); }
-  });
-  document.getElementById('gh-pull-btn').addEventListener('click', async () => {
-    setSyncStatus('불러오는 중...', false);
-    try {
-      const remote = await ghPullGist(ghGetToken(), gistId);
-      if (!remote.routines || !remote.data) throw new Error('올바른 백업 형식이 아니에요');
-      if (confirm('이 기기의 현재 기록을 GitHub의 기록으로 덮어쓸까요?')) {
-        state = remote;
-        if (!state.globalMemos) state.globalMemos = [];
-        saveState();
-        localStorage.setItem(GH_LASTSYNC_KEY, new Date().toISOString());
-        renderManage();
-      }
-    } catch (e) { setSyncStatus(e.message, true); }
-  });
-  document.getElementById('gh-disconnect').addEventListener('click', () => {
-    if (confirm('동기화 연결을 해제할까요? (토큰/Gist ID만 삭제, 기록과 Gist 자체는 유지)')) {
-      localStorage.removeItem(GH_TOKEN_KEY);
-      localStorage.removeItem(GH_GISTID_KEY);
-      localStorage.removeItem(GH_LASTSYNC_KEY);
-      renderSyncBox();
-    }
-  });
-}
 
 document.getElementById('back-btn').addEventListener('click', closeDetail);
 document.getElementById('manage-link').addEventListener('click', openManage);
