@@ -180,6 +180,17 @@
   .ai-analyze-btn { background: var(--text); color: var(--bg); border: none; border-radius: 10px; padding: 13px; font-size: 14px; font-weight: 800; cursor: pointer; width: 100%; margin-top: 10px; display: none; }
   .ai-analyze-btn:disabled { opacity: 0.6; }
   .ai-result { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: none; }
+  .ai-followup { margin-top: 10px; display: none; }
+  .ai-send-btn { background: var(--accent); color: #fff; border: none; border-radius: 9px; padding: 11px 18px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .ai-send-btn:disabled { opacity: 0.6; }
+  .ai-turn { margin-bottom: 14px; }
+  .ai-turn:last-child { margin-bottom: 0; }
+  .ai-q { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+  .date-picker-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; }
+  .date-picker-row input[type="date"] { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 10px; font-size: 12px; font-family: var(--font-mono); outline: none; }
+  .suggest-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 12px; color: var(--text-dim); cursor: pointer; }
+  .chip:active { background: var(--accent); color: #fff; }
   .ai-label { font-size: 11px; font-weight: 800; color: var(--accent); margin-bottom: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
   .ai-text { font-size: 13px; line-height: 1.65; color: var(--text); white-space: pre-wrap; }
   .ai-loading { font-size: 13px; color: var(--text-dim); }
@@ -287,6 +298,12 @@
     </div>
     <button class="ai-analyze-btn" id="ai-analyze-btn">🤖 AI에게 분석 요청</button>
     <div class="ai-result" id="ai-result"></div>
+    <div class="ai-followup" id="ai-followup">
+      <div class="form-row" style="margin-bottom:0;">
+        <input type="text" id="ai-followup-input" placeholder="이어서 물어보기 (예: 다음 주 계획 짜줘)">
+        <button class="ai-send-btn" id="ai-followup-btn">전송</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -315,6 +332,10 @@ function localDateStr(d) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+function nowTimeStr() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 function fmtDate(s) { const d = new Date(s); return `${d.getMonth()+1}.${d.getDate()}`; }
 function slugify(name) { return 'r_' + name.replace(/[^가-힣a-zA-Z0-9]/g,'').slice(0,10) + '_' + Date.now().toString(36).slice(-4); }
@@ -503,15 +524,50 @@ function openInsights() {
 }
 function closeInsights() { document.getElementById('app').classList.remove('open-insights'); }
 
+function computeTimePatterns() {
+  const results = [];
+  state.routines.forEach(r => {
+    const times = state.data[r.id].sessions
+      .filter(s => s.time && !s.skipped && !s.frozen)
+      .map(s => parseInt(s.time.split(':')[0], 10))
+      .filter(h => !isNaN(h));
+    if (times.length < 5) return;
+    const buckets = { '새벽 (0-6시)':0, '아침 (6-11시)':0, '낮 (11-17시)':0, '저녁 (17-21시)':0, '밤 (21-24시)':0 };
+    times.forEach(h => {
+      if (h < 6) buckets['새벽 (0-6시)']++;
+      else if (h < 11) buckets['아침 (6-11시)']++;
+      else if (h < 17) buckets['낮 (11-17시)']++;
+      else if (h < 21) buckets['저녁 (17-21시)']++;
+      else buckets['밤 (21-24시)']++;
+    });
+    const sorted = Object.entries(buckets).sort((a,b) => b[1]-a[1]);
+    const [topLabel, topCount] = sorted[0];
+    const pct = Math.round(topCount / times.length * 100);
+    if (pct >= 45) {
+      results.push(`${r.name}은(는) 주로 ${topLabel}에 하시네요 (${pct}%)`);
+    }
+  });
+  return results;
+}
+
 function renderInsights() {
   const body = document.getElementById('insights-body');
   const insights = computeCorrelations();
-  if (insights.length === 0) {
-    body.innerHTML = `<div class="empty-note">아직 데이터가 부족해요. 2주 이상, 각 루틴 5회 이상 기록이 쌓이면 루틴 간 패턴이 여기 나타나요.</div>`;
-    return;
+  const timePatterns = computeTimePatterns();
+  let html = '';
+
+  if (timePatterns.length) {
+    html += `<div class="section-lbl">시간대 패턴</div>`;
+    html += timePatterns.map(t => `<div class="insight-card">${escapeHtml(t)}</div>`).join('');
   }
-  body.innerHTML = `<div class="section-lbl">루틴 간 패턴</div>` +
-    insights.map(ins => `<div class="insight-card">${ins.text}</div>`).join('');
+  if (insights.length) {
+    html += `<div class="section-lbl">루틴 간 패턴</div>`;
+    html += insights.map(ins => `<div class="insight-card">${ins.text}</div>`).join('');
+  }
+  if (!html) {
+    html = `<div class="empty-note">아직 데이터가 부족해요. 기록이 2주 이상 쌓이면 루틴 간 패턴과 시간대 패턴이 여기 나타나요.</div>`;
+  }
+  body.innerHTML = html;
 }
 document.getElementById('insights-link').addEventListener('click', openInsights);
 document.getElementById('insights-back-btn').addEventListener('click', closeInsights);
@@ -570,7 +626,7 @@ function renderHome() {
       e.stopPropagation();
       const id = el.getAttribute('data-quick');
       const r = state.routines.find(x => x.id === id);
-      state.data[id].sessions.push({ date: todayStr(), amount: 1, note: '' });
+      state.data[id].sessions.push({ date: todayStr(), amount: 1, note: '', time: nowTimeStr() });
       saveState();
       if (r) checkMilestones(r);
       renderHome();
@@ -598,22 +654,42 @@ function renderHome() {
 
 let currentId = null;
 let editingToday = false;
+let editingDate = null;
+
+function getNoteSuggestions(r) {
+  const counts = {};
+  state.data[r.id].sessions.forEach(s => {
+    const n = (s.note || '').trim();
+    if (n.length >= 2) counts[n] = (counts[n] || 0) + 1;
+  });
+  return Object.entries(counts)
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([n]) => n);
+}
 
 function openDetail(id) {
-  currentId = id; editingToday = false;
+  currentId = id; editingToday = false; editingDate = null;
   renderDetail();
   document.getElementById('app').classList.add('open-detail');
 }
-function closeDetail() { document.getElementById('app').classList.remove('open-detail'); renderHome(); }
+function closeDetail() { editingDate = null; document.getElementById('app').classList.remove('open-detail'); renderHome(); }
 
 function renderDetail() {
   const r = state.routines.find(x => x.id === currentId);
   if (!r) { closeDetail(); return; }
   document.getElementById('detail-title').textContent = r.name;
-  const t = todayEntry(r);
+  const targetDate = editingDate || todayStr();
+  const isToday = targetDate === todayStr();
+  const t = state.data[r.id].sessions.find(s => s.date === targetDate);
   const sessions = state.data[r.id].sessions.slice().sort((a,b) => b.date.localeCompare(a.date));
 
-  let html = `<div class="today-card"><div class="lbl">오늘</div>`;
+  let html = `<div class="today-card">
+    <div class="date-picker-row">
+      <span class="lbl">${isToday ? '오늘' : '지난 기록 입력'}</span>
+      <input type="date" id="target-date-input" value="${targetDate}" max="${todayStr()}">
+    </div>`;
   if (t && !editingToday) {
     let mainLabel, subLabel;
     if (t.skipped) { mainLabel = '스킵'; subLabel = t.reason ? escapeHtml(t.reason) : '이유 없음'; }
@@ -625,21 +701,26 @@ function renderDetail() {
         <div class="edit-link" id="edit-today">수정</div>
       </div>`;
   } else {
+    const noteSuggestions = getNoteSuggestions(r);
     if (r.unit === '분') {
       html += `<div class="form-row">
           <input type="number" step="1" min="0" inputmode="numeric" id="amount-input" placeholder="분" value="${t && !t.skipped && !t.frozen ? t.amount : ''}">
-          <input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}">
+          <input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}" list="note-suggestions" autocomplete="off">
         </div>`;
     } else {
-      html += `<div class="check-toggle"><div class="check-btn ${t && !t.skipped && !t.frozen ?'active':''}" id="check-btn">${t && !t.skipped && !t.frozen ? '✓ 완료함' : '오늘 완료'}</div></div>
-        <div class="form-row"><input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}"></div>`;
+      html += `<div class="check-toggle"><div class="check-btn ${t && !t.skipped && !t.frozen ?'active':''}" id="check-btn">${t && !t.skipped && !t.frozen ? '✓ 완료함' : (isToday ? '오늘 완료' : '이 날 완료')}</div></div>
+        <div class="form-row"><input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}" list="note-suggestions" autocomplete="off"></div>`;
+    }
+    if (noteSuggestions.length) {
+      html += `<datalist id="note-suggestions">${noteSuggestions.map(s => `<option value="${escapeAttr(s)}"></option>`).join('')}</datalist>`;
+      html += `<div class="suggest-chips">${noteSuggestions.slice(0,3).map(s => `<span class="chip" data-chip="${escapeAttr(s)}">${escapeHtml(s.length>16 ? s.slice(0,16)+'…' : s)}</span>`).join('')}</div>`;
     }
     html += `<button class="save-btn" id="save-btn">저장</button><div class="form-hint" id="form-hint">${r.unit==='분' ? '분을 0보다 크게 입력해주세요' : '먼저 완료 체크를 눌러주세요'}</div>`;
 
     const freezes = state.data[r.id].freezes ?? 3;
     html += `<div class="alt-actions">`;
     if (freezes > 0) html += `<div class="alt-btn" id="freeze-btn">❄️ 프리즈 (${freezes}개 남음)</div>`;
-    html += `<div class="alt-btn" id="skip-btn">오늘은 못했어요</div>`;
+    html += `<div class="alt-btn" id="skip-btn">${isToday ? '오늘은 못했어요' : '이 날은 못했어요'}</div>`;
     html += `</div>`;
   }
   html += `</div>`;
@@ -673,15 +754,28 @@ function renderDetail() {
 }
 
 function attachDetailEvents(r) {
+  const targetDate = editingDate || todayStr();
+  const isToday = targetDate === todayStr();
+  const existing = state.data[r.id].sessions.find(s => s.date === targetDate);
+
+  const dateInput = document.getElementById('target-date-input');
+  if (dateInput) dateInput.addEventListener('change', () => {
+    const v = dateInput.value;
+    if (!v) return;
+    editingDate = (v === todayStr()) ? null : v;
+    editingToday = false;
+    renderDetail();
+  });
+
   const editLink = document.getElementById('edit-today');
   if (editLink) editLink.addEventListener('click', () => { editingToday = true; renderDetail(); });
 
-  let checkActive = !!(todayEntry(r) && !todayEntry(r).skipped && !todayEntry(r).frozen);
+  let checkActive = !!(existing && !existing.skipped && !existing.frozen);
   const checkBtn = document.getElementById('check-btn');
   if (checkBtn) checkBtn.addEventListener('click', () => {
     checkActive = !checkActive;
     checkBtn.classList.toggle('active', checkActive);
-    checkBtn.textContent = checkActive ? '✓ 완료함' : '오늘 완료';
+    checkBtn.textContent = checkActive ? '✓ 완료함' : (isToday ? '오늘 완료' : '이 날 완료');
     if (checkActive) { const ni = document.getElementById('note-input'); if (ni) ni.focus(); }
   });
 
@@ -693,6 +787,11 @@ function attachDetailEvents(r) {
   if (noteInput) noteInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); const sb = document.getElementById('save-btn'); if (sb) sb.click(); }
   });
+
+  document.querySelectorAll('[data-chip]').forEach(el => el.addEventListener('click', () => {
+    const ni = document.getElementById('note-input');
+    if (ni) { ni.value = el.getAttribute('data-chip'); ni.focus(); }
+  }));
 
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.addEventListener('click', () => {
@@ -706,10 +805,10 @@ function attachDetailEvents(r) {
       amount = 1;
     }
     const note = document.getElementById('note-input').value.trim();
-    const today = todayStr();
     const list = state.data[r.id].sessions;
-    const idx = list.findIndex(s => s.date === today);
-    const entry = { date: today, amount, note };
+    const idx = list.findIndex(s => s.date === targetDate);
+    const entry = { date: targetDate, amount, note };
+    if (isToday) entry.time = nowTimeStr();
     if (idx >= 0) list[idx] = entry; else list.push(entry);
     saveState(); checkMilestones(r); editingToday = false; renderDetail();
   });
@@ -725,21 +824,19 @@ function attachDetailEvents(r) {
     const freezes = state.data[r.id].freezes ?? 3;
     if (freezes <= 0) return;
     state.data[r.id].freezes = freezes - 1;
-    const today = todayStr();
     const list = state.data[r.id].sessions;
-    const idx = list.findIndex(s => s.date === today);
-    const entry = { date: today, amount: 0, frozen: true };
+    const idx = list.findIndex(s => s.date === targetDate);
+    const entry = { date: targetDate, amount: 0, frozen: true };
     if (idx >= 0) list[idx] = entry; else list.push(entry);
     saveState(); checkMilestones(r); editingToday = false; renderDetail();
   });
 
   const skipBtn = document.getElementById('skip-btn');
   if (skipBtn) skipBtn.addEventListener('click', () => {
-    const reason = (prompt('오늘 못한 이유를 간단히 남겨주세요 (선택)') || '').trim();
-    const today = todayStr();
+    const reason = (prompt('못한 이유를 간단히 남겨주세요 (선택)') || '').trim();
     const list = state.data[r.id].sessions;
-    const idx = list.findIndex(s => s.date === today);
-    const entry = { date: today, amount: 0, skipped: true, reason };
+    const idx = list.findIndex(s => s.date === targetDate);
+    const entry = { date: targetDate, amount: 0, skipped: true, reason };
     if (idx >= 0) list[idx] = entry; else list.push(entry);
     saveState(); editingToday = false; renderDetail();
   });
@@ -917,7 +1014,10 @@ function renderAiBox() {
   }
 }
 
-async function callClaudeAPI(apiKey, promptText) {
+async function callClaudeAPI(apiKey, messages) {
+  const msgs = typeof messages === 'string'
+    ? [{ role: 'user', content: messages }]
+    : messages;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -929,7 +1029,7 @@ async function callClaudeAPI(apiKey, promptText) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      messages: [{ role: 'user', content: promptText }]
+      messages: msgs
     })
   });
   if (!res.ok) {
@@ -942,15 +1042,36 @@ async function callClaudeAPI(apiKey, promptText) {
   return data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
 }
 
+let aiConversation = [];
+
+function renderAiConversation() {
+  const resultEl = document.getElementById('ai-result');
+  if (aiConversation.length === 0) { resultEl.style.display = 'none'; resultEl.innerHTML = ''; return; }
+  resultEl.style.display = 'block';
+  let html = '';
+  for (let i = 0; i < aiConversation.length; i++) {
+    const m = aiConversation[i];
+    if (m.role === 'assistant') {
+      html += `<div class="ai-turn"><div class="ai-label">AI 분석</div><div class="ai-text">${escapeHtml(m.content)}</div></div>`;
+    } else if (i > 0) {
+      html += `<div class="ai-turn"><div class="ai-q">Q. ${escapeHtml(m.content)}</div></div>`;
+    }
+  }
+  resultEl.innerHTML = html;
+}
+
 function openModal(title, sub, text, analyzable = true) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-sub').textContent = sub;
   document.getElementById('modal-text').value = text;
   document.getElementById('modal-backdrop').classList.add('show');
 
+  aiConversation = [];
   const aiResult = document.getElementById('ai-result');
   aiResult.style.display = 'none';
   aiResult.innerHTML = '';
+  document.getElementById('ai-followup').style.display = 'none';
+  document.getElementById('ai-followup-input').value = '';
   const aiBtn = document.getElementById('ai-analyze-btn');
   if (analyzable && getAiKey()) {
     aiBtn.style.display = 'block';
@@ -962,6 +1083,7 @@ function openModal(title, sub, text, analyzable = true) {
 }
 function closeModal() { document.getElementById('modal-backdrop').classList.remove('show'); }
 document.getElementById('modal-close').addEventListener('click', closeModal);
+
 document.getElementById('ai-analyze-btn').addEventListener('click', async () => {
   const btn = document.getElementById('ai-analyze-btn');
   const resultEl = document.getElementById('ai-result');
@@ -971,14 +1093,48 @@ document.getElementById('ai-analyze-btn').addEventListener('click', async () => 
   resultEl.style.display = 'block';
   resultEl.innerHTML = '<div class="ai-loading">AI가 기록을 살펴보고 있어요...</div>';
   try {
-    const analysis = await callClaudeAPI(getAiKey(), text);
-    resultEl.innerHTML = `<div class="ai-label">AI 분석</div><div class="ai-text">${escapeHtml(analysis)}</div>`;
+    aiConversation = [{ role: 'user', content: text }];
+    const analysis = await callClaudeAPI(getAiKey(), aiConversation);
+    aiConversation.push({ role: 'assistant', content: analysis });
+    renderAiConversation();
+    document.getElementById('ai-followup').style.display = 'block';
   } catch (e) {
     resultEl.innerHTML = `<div class="ai-error">분석 실패: ${escapeHtml(e.message)}</div>`;
+    aiConversation = [];
   } finally {
     btn.disabled = false;
-    btn.textContent = '🔄 다시 분석 요청';
+    btn.textContent = '🔄 처음부터 다시 분석';
   }
+});
+
+async function sendFollowup() {
+  const input = document.getElementById('ai-followup-input');
+  const q = input.value.trim();
+  if (!q || aiConversation.length === 0) return;
+  const sendBtn = document.getElementById('ai-followup-btn');
+  sendBtn.disabled = true;
+  sendBtn.textContent = '...';
+  aiConversation.push({ role: 'user', content: q });
+  input.value = '';
+  renderAiConversation();
+  const resultEl = document.getElementById('ai-result');
+  resultEl.innerHTML += '<div class="ai-loading">생각 중...</div>';
+  try {
+    const answer = await callClaudeAPI(getAiKey(), aiConversation);
+    aiConversation.push({ role: 'assistant', content: answer });
+    renderAiConversation();
+  } catch (e) {
+    aiConversation.pop();
+    renderAiConversation();
+    resultEl.innerHTML += `<div class="ai-error">실패: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = '전송';
+  }
+}
+document.getElementById('ai-followup-btn').addEventListener('click', sendFollowup);
+document.getElementById('ai-followup-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); sendFollowup(); }
 });
 document.getElementById('modal-copy').addEventListener('click', async () => {
   const text = document.getElementById('modal-text').value;
