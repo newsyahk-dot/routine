@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daily-lap-v17';
+const CACHE_NAME = 'daily-lap-v19';
 const ASSETS = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', (e) => {
@@ -13,8 +13,18 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
+// Network-first: 항상 최신 버전을 먼저 시도하고, 실패(오프라인)할 때만 캐시 사용
 self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
+    fetch(e.request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
