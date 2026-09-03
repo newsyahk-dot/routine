@@ -105,11 +105,12 @@
   .edit-link { font-size: 12px; color: var(--accent); cursor: pointer; white-space: nowrap; padding-top: 2px; font-weight: 700; }
 
   .form-row { display: flex; gap: 8px; margin-bottom: 10px; min-width: 0; }
-  .form-row input[type="number"], .form-row input[type="text"] {
+  .form-row input[type="number"], .form-row input[type="text"], .form-row input[type="password"] {
     background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; color: var(--text);
-    padding: 11px 12px; font-size: 14px; font-family: var(--font); outline: none; }
+    padding: 11px 12px; font-size: 14px; font-family: var(--font); outline: none; min-width: 0; }
   .form-row input[type="number"] { width: 90px; font-family: var(--font-mono); }
   .form-row input[type="text"] { flex-grow: 1; min-width: 0; }
+  .form-row input[type="password"] { flex: 1; min-width: 0; }
   .form-row input::placeholder { color: var(--text-faint); }
 
   .check-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
@@ -302,7 +303,19 @@ const DEFAULT_ROUTINES = [
   { id:'etc', name:'기타연습', unit:'분' },
 ];
 
-function todayStr() { return new Date().toISOString().slice(0,10); }
+function todayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function fmtDate(s) { const d = new Date(s); return `${d.getMonth()+1}.${d.getDate()}`; }
 function slugify(name) { return 'r_' + name.replace(/[^가-힣a-zA-Z0-9]/g,'').slice(0,10) + '_' + Date.now().toString(36).slice(-4); }
 
@@ -348,7 +361,7 @@ function todayEntry(r) {
 function computeStreak(r) {
   let streak = 0, d = new Date();
   while (true) {
-    const e = state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10));
+    const e = state.data[r.id].sessions.find(s => s.date === localDateStr(d));
     if (e && !e.skipped) { streak++; d.setDate(d.getDate()-1); } else break;
   }
   return streak;
@@ -357,7 +370,7 @@ function computeLast7(r) {
   let count = 0;
   for (let i=0;i<7;i++) {
     const d = new Date(); d.setDate(d.getDate()-i);
-    const e = state.data[r.id].sessions.find(s => s.date === d.toISOString().slice(0,10));
+    const e = state.data[r.id].sessions.find(s => s.date === localDateStr(d));
     if (e && !e.skipped) count++;
   }
   return count;
@@ -614,7 +627,7 @@ function renderDetail() {
   } else {
     if (r.unit === '분') {
       html += `<div class="form-row">
-          <input type="number" step="1" min="0" inputmode="numeric" id="amount-input" placeholder="분 (예: 30)" value="${t && !t.skipped && !t.frozen ? t.amount : ''}">
+          <input type="number" step="1" min="0" inputmode="numeric" id="amount-input" placeholder="분" value="${t && !t.skipped && !t.frozen ? t.amount : ''}">
           <input type="text" id="note-input" placeholder="구체적으로 뭘 했나요?" value="${t && t.note ? escapeAttr(t.note) : ''}">
         </div>`;
     } else {
